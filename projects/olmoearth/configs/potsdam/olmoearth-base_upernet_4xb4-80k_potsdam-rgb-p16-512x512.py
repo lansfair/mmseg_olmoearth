@@ -213,6 +213,7 @@ env_cfg = dict(
     dist_cfg=dict(backend="nccl"),
 )
 
+log_processor = dict(by_epoch=False)
 default_scope = "mmseg"
 log_level = "INFO"
 load_from = None
