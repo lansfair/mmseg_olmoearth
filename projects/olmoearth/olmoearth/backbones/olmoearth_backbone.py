@@ -55,7 +55,33 @@ class OlmoEarthBackbone(BaseModule):
         self.sample_field = get_sample_field(modality)
         self.model = build_olmoearth_model(model_config_path)
         self.encoder = self.model.encoder
+        self.encoder.remove_masked_tokens = (
+            self._remove_masked_tokens_sort_compat
+        )
         self._batch_metainfo: list[dict[str, Any]] | None = None
+
+    @staticmethod
+    def _remove_masked_tokens_sort_compat(
+        x: Tensor,
+        mask: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+        sortable_mask = mask
+        if mask.dtype == torch.bool:
+            sortable_mask = mask.to(torch.uint8)
+        sorted_mask, indices = torch.sort(
+            sortable_mask,
+            dim=1,
+            descending=True,
+            stable=True,
+        )
+        sorted_mask = sorted_mask.to(torch.bool)
+        x = x.gather(1, indices[:, :, None].expand_as(x))
+        x = x * sorted_mask.unsqueeze(-1)
+        seq_lengths = sorted_mask.sum(-1)
+        max_length = seq_lengths.max()
+        x = x[:, :max_length]
+        updated_mask = sorted_mask[:, :max_length]
+        return x, indices, updated_mask, seq_lengths, max_length
 
     @staticmethod
     def _extract_state_dict(checkpoint: Any) -> dict[str, Tensor]:
