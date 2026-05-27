@@ -255,7 +255,7 @@ class OlmoEarthBackbone(BaseModule):
         fast_pass = self.fast_pass
         if fast_pass is None:
             fast_pass = not self._has_missing_tokens(sample)
-        encoder_out = self.model(
+        encoder_out = self.encoder(
             sample,
             fast_pass=fast_pass,
             patch_size=self.patch_size,
