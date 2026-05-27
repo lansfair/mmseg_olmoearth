@@ -14,8 +14,9 @@ training.
   masks.
 - `OlmoEarthSegDataPreProcessor` extends MMSeg padding so optional valid masks
   stay aligned with padded inputs and labels.
-- `OlmoEarthBackbone` loads an explicit OLMoEarth checkpoint path and reuses
-  OLMoEarth's reference `pool_unmasked_tokens` path to produce dense features.
+- `OlmoEarthBackbone` builds the OLMoEarth encoder from `model_config_path`,
+  loads released weights through OpenMMLab `init_cfg`, and reuses OLMoEarth's
+  reference `pool_unmasked_tokens` path to produce dense features.
 - `OlmoEarthEncoderDecoder` passes temporal metadata from `SegDataSample` to the
   backbone.
 - `OlmoEarthPatchLinearHead` implements the paper-style patch-linear dense
@@ -30,8 +31,25 @@ training.
   by AWF and Nandi before normalizing Sentinel-2 inputs.
 
 The primary dependency path is the local/full `olmoearth_pretrain` package. The
-runtime does not read paths from environment variables; set `data_root` and
-`checkpoint_path` directly in config files or with `--cfg-options`.
+runtime does not read paths from environment variables; set `data_root`,
+`model.backbone.model_config_path`, and
+`model.backbone.init_cfg.checkpoint` directly in config files or with
+`--cfg-options`.
+
+## Checkpoint Layout
+
+The configs expect the released OLMoEarth files to be laid out as:
+
+```text
+checkpoints/olmoearth/
+  config.json
+  weights.pth
+```
+
+`model_config_path` is used only to build the OLMoEarth model structure.
+`init_cfg.checkpoint` is used only for loading the released OLMoEarth
+`weights.pth`. MMSegmentation's top-level `load_from` should still be reserved
+for resuming or initializing a full MMSeg checkpoint.
 
 ## Data Layout
 
@@ -72,13 +90,14 @@ Then train:
 python tools/train.py \
   projects/olmoearth/configs/pastis/olmoearth-base_4xb4-50e_pastis-s2.py \
   --cfg-options \
-  model.backbone.checkpoint_path=/path/to/olmoearth_checkpoint
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
 ```
 
 When overriding paths from the command line, set the nested config keys. The
-top-level `checkpoint_path` and `data_root` variables are readability helpers
-inside the config file; overriding them after parsing does not rewrite the
-already-expanded nested dictionaries.
+top-level `data_root`, `model_config_path`, and `weights_path` variables are
+readability helpers inside the config file; overriding them after parsing does
+not rewrite the already-expanded nested dictionaries.
 
 PASTIS void label `19` is converted by OLMoEarth preprocessing to `-1`; the
 converter maps ignored pixels to MMSeg `ignore_index=255`.
@@ -137,7 +156,8 @@ python projects/olmoearth/tools/check_forward.py \
   --split train \
   --device cuda \
   --cfg-options \
-  model.backbone.checkpoint_path=/path/to/olmoearth_checkpoint
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
 ```
 
 ## RGB Compatibility
@@ -170,5 +190,6 @@ Train with:
 python tools/train.py \
   projects/olmoearth/configs/potsdam/olmoearth-base_4xb4-50e_potsdam-rgb.py \
   --cfg-options \
-  model.backbone.checkpoint_path=/path/to/olmoearth_checkpoint
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
 ```

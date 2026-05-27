@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import torch
+from mmengine.model import BaseModule
+from mmengine.runner.checkpoint import CheckpointLoader
 from mmseg.registry import MODELS
-from torch import Tensor, nn
+from torch import Tensor
 
-from ..utils import get_modality_bands, get_sample_field, load_olmoearth_model
+from ..utils import build_olmoearth_model, get_modality_bands
+from ..utils import get_sample_field
 
 
 def _import_olmoearth_types():
@@ -21,7 +25,7 @@ def _normalize_band_name(value: str) -> str:
 
 
 @MODELS.register_module()
-class OlmoEarthBackbone(nn.Module):
+class OlmoEarthBackbone(BaseModule):
     """Dense OLMoEarth encoder backbone for MMSegmentation.
 
     The input tensor is flattened band-major as ``(B, C*T, H, W)``. Temporal
@@ -31,15 +35,16 @@ class OlmoEarthBackbone(nn.Module):
 
     def __init__(
         self,
-        checkpoint_path: str,
+        model_config_path: str,
         modality: str = "sentinel2_l2a",
         patch_size: int = 4,
         num_timesteps: int = 12,
         out_channels: int = 768,
         pooling_type: str = "mean",
         fast_pass: bool | None = None,
+        init_cfg: dict | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(init_cfg=init_cfg)
         self.modality = modality
         self.patch_size = patch_size
         self.num_timesteps = num_timesteps
@@ -48,9 +53,49 @@ class OlmoEarthBackbone(nn.Module):
         self.fast_pass = fast_pass
         self.band_names = list(get_modality_bands(modality))
         self.sample_field = get_sample_field(modality)
-        self.model = load_olmoearth_model(checkpoint_path)
+        self.model = build_olmoearth_model(model_config_path)
         self.encoder = self.model.encoder
         self._batch_metainfo: list[dict[str, Any]] | None = None
+
+    @staticmethod
+    def _extract_state_dict(checkpoint: Any) -> dict[str, Tensor]:
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            checkpoint = checkpoint["state_dict"]
+        elif isinstance(checkpoint, dict) and "model" in checkpoint:
+            checkpoint = checkpoint["model"]
+        if not isinstance(checkpoint, dict):
+            raise TypeError(
+                "OLMoEarth init_cfg checkpoint must be a state_dict or "
+                "contain 'state_dict'/'model'."
+            )
+        cleaned = {}
+        for key, value in checkpoint.items():
+            key = re.sub(r"^(module\.)+", "", key)
+            key = re.sub(r"^(model\.)+", "", key)
+            cleaned[key] = value
+        return cleaned
+
+    def init_weights(self) -> None:
+        if self.init_cfg is None:
+            return
+        if not isinstance(self.init_cfg, dict):
+            raise TypeError("OlmoEarthBackbone init_cfg must be a dict.")
+        if self.init_cfg.get("type") != "Pretrained":
+            super().init_weights()
+            return
+        checkpoint_path = self.init_cfg.get("checkpoint")
+        if checkpoint_path is None:
+            raise ValueError(
+                "OlmoEarthBackbone init_cfg requires a checkpoint path."
+            )
+        checkpoint = CheckpointLoader.load_checkpoint(
+            checkpoint_path,
+            map_location="cpu",
+            logger=None,
+        )
+        state_dict = self._extract_state_dict(checkpoint)
+        self.model.load_state_dict(state_dict, strict=True)
+        self._is_init = True
 
     def set_batch_metainfo(
         self,

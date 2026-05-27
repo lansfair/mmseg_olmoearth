@@ -4,7 +4,9 @@ custom_imports = dict(
 )
 
 data_root = "data/olmoearth_mmseg/awf"
-checkpoint_path = "checkpoints/olmoearth"
+olmoearth_model_dir = "checkpoints/olmoearth"
+model_config_path = f"{olmoearth_model_dir}/config.json"
+weights_path = f"{olmoearth_model_dir}/weights.pth"
 work_dir = "./work_dirs/olmoearth-base_4xb4-100e_awf-s2"
 
 ignore_index = 255
@@ -94,7 +96,8 @@ model = dict(
     ),
     backbone=dict(
         type="OlmoEarthBackbone",
-        checkpoint_path=checkpoint_path,
+        model_config_path=model_config_path,
+        init_cfg=dict(type="Pretrained", checkpoint=weights_path),
         modality="sentinel2_l2a",
         patch_size=patch_size,
         num_timesteps=num_timesteps,

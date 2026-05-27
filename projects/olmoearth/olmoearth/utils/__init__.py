@@ -1,4 +1,4 @@
-from .checkpoint import load_olmoearth_model
+from .checkpoint import build_olmoearth_model
 from .modalities import (
     AWF_CLASSES,
     AWF_PALETTE,
@@ -39,5 +39,5 @@ __all__ = [
     "SENTINEL2_L2A_BANDS",
     "get_modality_bands",
     "get_sample_field",
-    "load_olmoearth_model",
+    "build_olmoearth_model",
 ]
