@@ -194,14 +194,22 @@ python tools/train.py \
   model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
 ```
 
-A UPerNet-style Potsdam config is also available. It follows OpenMMLab's
+Two UPerNet-style Potsdam configs are also available. They follow OpenMMLab's
 Potsdam/UPerNet convention more closely with 512 crops, `MultiLevelNeck`,
 `UPerHead`, an auxiliary `FCNHead`, 80k iterations, `InfiniteSampler`, and
-`PolyLR`:
+`PolyLR`. The `p4` version keeps the OLMoEarth feature at 1/4 resolution before
+the neck; the `p16` version tests a coarser 1/16 feature for lower encoder
+memory use.
 
 ```bash
 python tools/train.py \
-  projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-512x512.py \
+  projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
+  --cfg-options \
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
+
+python tools/train.py \
+  projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p16-512x512.py \
   --cfg-options \
   model.backbone.model_config_path=/path/to/olmoearth/config.json \
   model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth

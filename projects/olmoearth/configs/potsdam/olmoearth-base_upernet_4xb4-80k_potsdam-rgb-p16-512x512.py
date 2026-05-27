@@ -8,14 +8,14 @@ olmoearth_model_dir = "checkpoints/olmoearth"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
 work_dir = (
-    "./work_dirs/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-512x512"
+    "./work_dirs/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p16-512x512"
 )
 
 ignore_index = 255
 num_classes = 6
 num_timesteps = 1
 crop_size = 512
-patch_size = 4
+patch_size = 16
 norm_cfg = dict(type="SyncBN", requires_grad=True)
 
 train_pipeline = [
@@ -125,7 +125,7 @@ model = dict(
         type="MultiLevelNeck",
         in_channels=[768],
         out_channels=768,
-        scales=[1, 0.5, 0.25, 0.125],
+        scales=[4, 2, 1, 0.5],
         norm_cfg=norm_cfg,
     ),
     decode_head=dict(
