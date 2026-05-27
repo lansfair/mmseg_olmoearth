@@ -31,25 +31,7 @@ training.
 
 The primary dependency path is the local/full `olmoearth_pretrain` package. The
 runtime does not read paths from environment variables; set `data_root` and
-checkpoint options directly in config files or with `--cfg-options`.
-
-OLMoEarth checkpoints can be loaded in three forms:
-
-```bash
-# Hugging Face model id.
---cfg-options \
-  model.backbone.model_id=OlmoEarth-v1-Base \
-  model.backbone.checkpoint_path=None
-
-# Local Hugging Face-style directory containing config.json and weights.pth.
---cfg-options \
-  model.backbone.checkpoint_path=/path/to/OlmoEarth-v1-Base
-
-# Standalone .pth plus its matching config.json.
---cfg-options \
-  model.backbone.checkpoint_path=/path/to/weights.pth \
-  model.backbone.config_path=/path/to/config.json
-```
+`checkpoint_path` directly in config files or with `--cfg-options`.
 
 ## Data Layout
 
