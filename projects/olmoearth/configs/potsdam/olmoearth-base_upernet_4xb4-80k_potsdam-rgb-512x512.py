@@ -1,14 +1,21 @@
-_base_ = "./olmoearth-base_4xb4-50e_potsdam-rgb.py"
+custom_imports = dict(
+    imports=["projects.olmoearth.olmoearth"],
+    allow_failed_imports=False,
+)
 
+data_root = "data/potsdam"
+olmoearth_model_dir = "checkpoints/olmoearth"
+model_config_path = f"{olmoearth_model_dir}/config.json"
+weights_path = f"{olmoearth_model_dir}/weights.pth"
 work_dir = (
     "./work_dirs/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-512x512"
 )
 
+ignore_index = 255
+num_classes = 6
+num_timesteps = 1
 crop_size = 512
 patch_size = 4
-num_classes = 6
-ignore_index = 255
-num_timesteps = 1
 norm_cfg = dict(type="SyncBN", requires_grad=True)
 
 train_pipeline = [
@@ -54,14 +61,43 @@ train_dataloader = dict(
     num_workers=4,
     persistent_workers=True,
     sampler=dict(type="InfiniteSampler", shuffle=True),
-    dataset=dict(pipeline=train_pipeline),
+    dataset=dict(
+        type="OlmoEarthPotsdamDataset",
+        data_root=data_root,
+        data_prefix=dict(
+            img_path="img_dir/train",
+            seg_map_path="ann_dir/train",
+        ),
+        pipeline=train_pipeline,
+    ),
 )
 
-val_dataloader = dict(dataset=dict(pipeline=test_pipeline))
+val_dataloader = dict(
+    batch_size=1,
+    num_workers=4,
+    persistent_workers=True,
+    sampler=dict(type="DefaultSampler", shuffle=False),
+    dataset=dict(
+        type="OlmoEarthPotsdamDataset",
+        data_root=data_root,
+        data_prefix=dict(
+            img_path="img_dir/val",
+            seg_map_path="ann_dir/val",
+        ),
+        pipeline=test_pipeline,
+    ),
+)
 test_dataloader = val_dataloader
 
+val_evaluator = dict(
+    type="OlmoEarthIoUMetric",
+    num_classes=num_classes,
+    ignore_index=ignore_index,
+    use_valid_mask=False,
+)
+test_evaluator = val_evaluator
+
 data_preprocessor = dict(
-    _delete_=True,
     type="OlmoEarthSegDataPreProcessor",
     mean=None,
     std=None,
@@ -73,9 +109,19 @@ data_preprocessor = dict(
 )
 
 model = dict(
+    type="OlmoEarthEncoderDecoder",
     data_preprocessor=data_preprocessor,
+    backbone=dict(
+        type="OlmoEarthBackbone",
+        model_config_path=model_config_path,
+        init_cfg=dict(type="Pretrained", checkpoint=weights_path),
+        modality="sentinel2_l2a",
+        patch_size=patch_size,
+        num_timesteps=num_timesteps,
+        out_channels=768,
+        pooling_type="mean",
+    ),
     decode_head=dict(
-        _delete_=True,
         type="UPerHead",
         in_channels=[768],
         in_index=[0],
@@ -108,8 +154,11 @@ model = dict(
             loss_weight=0.4,
         ),
     ),
+    train_cfg=dict(),
     test_cfg=dict(mode="whole"),
 )
+
+custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
 
 optim_wrapper = dict(
     type="OptimWrapper",
@@ -134,14 +183,30 @@ param_scheduler = [
 ]
 
 train_cfg = dict(type="IterBasedTrainLoop", max_iters=80000, val_interval=8000)
+val_cfg = dict(type="ValLoop")
+test_cfg = dict(type="TestLoop")
 
 default_hooks = dict(
+    timer=dict(type="IterTimerHook"),
     logger=dict(type="LoggerHook", interval=50, log_metric_by_epoch=False),
+    param_scheduler=dict(type="ParamSchedulerHook"),
     checkpoint=dict(
         type="CheckpointHook",
         by_epoch=False,
         interval=8000,
         save_best="mIoU",
     ),
+    sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="OlmoEarthVisualizationHook"),
 )
+
+env_cfg = dict(
+    cudnn_benchmark=True,
+    mp_cfg=dict(mp_start_method="fork", opencv_num_threads=0),
+    dist_cfg=dict(backend="nccl"),
+)
+
+default_scope = "mmseg"
+log_level = "INFO"
+load_from = None
+resume = False
