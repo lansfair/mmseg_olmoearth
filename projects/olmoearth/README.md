@@ -158,17 +158,11 @@ python tools/dataset_converters/potsdam.py \
   --out_dir data/potsdam
 ```
 
-Then materialize the OLMoEarth project manifests:
-
-```bash
-python projects/olmoearth/tools/convert_potsdam.py \
-  --input-root data/potsdam \
-  --output-root data/olmoearth_mmseg/potsdam
-```
-
-The converter defaults to Potsdam's official/mmseg label convention: label
-value `0` is ignored black boundary, and class ids `1..6` are remapped to
-`0..5`. If your labels are already `0..5`, pass `--no-reduce-zero-label`.
+The Potsdam config uses `OlmoEarthPotsdamDataset`, which directly reads
+`data/potsdam/img_dir/{train,val}/*.png` and
+`data/potsdam/ann_dir/{train,val}/*.png`. It follows MMSeg's official Potsdam
+label convention: label value `0` is ignored black boundary, and class ids
+`1..6` are remapped to `0..5` through `reduce_zero_label=True`.
 
 Train with:
 

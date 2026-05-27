@@ -3,7 +3,7 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-data_root = "data/olmoearth_mmseg/potsdam"
+data_root = "data/potsdam"
 checkpoint_path = "checkpoints/olmoearth"
 work_dir = "./work_dirs/olmoearth-base_4xb4-50e_potsdam-rgb"
 
@@ -14,34 +14,30 @@ crop_size = 256
 patch_size = 4
 
 train_pipeline = [
+    dict(type="LoadImageFromFile", to_float32=True),
+    dict(type="LoadAnnotations"),
     dict(
-        type="LoadOlmoEarthArrays",
-        image_layout="HWC",
-        ignore_index=ignore_index,
-        source_ignore_values=(),
+        type="RandomCrop",
+        crop_size=(crop_size, crop_size),
+        cat_max_ratio=0.75,
     ),
-    dict(type="OlmoEarthCrop", crop_size=crop_size, mode="random"),
-    dict(type="OlmoEarthRandomFlip", horizontal=True, vertical=True),
+    dict(type="RandomFlip", prob=0.5),
     dict(
         type="RGBToOlmoEarthS2",
         num_timesteps=num_timesteps,
-        rgb_channel_order="RGB",
+        rgb_channel_order="BGR",
         input_value_range="0_255",
     ),
     dict(type="PackOlmoEarthSegInputs"),
 ]
 
 test_pipeline = [
-    dict(
-        type="LoadOlmoEarthArrays",
-        image_layout="HWC",
-        ignore_index=ignore_index,
-        source_ignore_values=(),
-    ),
+    dict(type="LoadImageFromFile", to_float32=True),
+    dict(type="LoadAnnotations"),
     dict(
         type="RGBToOlmoEarthS2",
         num_timesteps=num_timesteps,
-        rgb_channel_order="RGB",
+        rgb_channel_order="BGR",
         input_value_range="0_255",
     ),
     dict(type="PackOlmoEarthSegInputs"),
@@ -53,10 +49,12 @@ train_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="OlmoEarthPotsdamDataset",
         data_root=data_root,
-        ann_file="train.json",
-        dataset_name="potsdam",
+        data_prefix=dict(
+            img_path="img_dir/train",
+            seg_map_path="ann_dir/train",
+        ),
         pipeline=train_pipeline,
     ),
 )
@@ -67,10 +65,12 @@ val_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="OlmoEarthPotsdamDataset",
         data_root=data_root,
-        ann_file="val.json",
-        dataset_name="potsdam",
+        data_prefix=dict(
+            img_path="img_dir/val",
+            seg_map_path="ann_dir/val",
+        ),
         pipeline=test_pipeline,
     ),
 )

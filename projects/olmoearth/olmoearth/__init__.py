@@ -1,6 +1,7 @@
 from .backbones import OlmoEarthBackbone
 from .data_preprocessor import OlmoEarthSegDataPreProcessor
-from .datasets import DATASET_METAINFO, OlmoEarthSegDataset
+from .datasets import DATASET_METAINFO, OlmoEarthPotsdamDataset
+from .datasets import OlmoEarthSegDataset
 from .decode_heads import OlmoEarthLinearHead, OlmoEarthPatchLinearHead
 from .hooks import FreezeBackboneUntilEpochHook, OlmoEarthVisualizationHook
 from .losses import ValidMaskCrossEntropyLoss
@@ -32,6 +33,7 @@ __all__ = [
     "OlmoEarthNormalize",
     "OlmoEarthPad",
     "OlmoEarthPatchLinearHead",
+    "OlmoEarthPotsdamDataset",
     "OlmoEarthRandomFlip",
     "OlmoEarthSegDataset",
     "PackOlmoEarthSegInputs",
