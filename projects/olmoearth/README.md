@@ -24,6 +24,8 @@ training.
 - `OlmoEarthIoUMetric` follows the OLMoEarth pretrain eval path: filter ignored
   pixels, build a confusion matrix, and average IoU over classes with nonzero
   union.
+- `OlmoEarthVisualizationHook` avoids MMSeg's default RGB-file assumption and
+  renders validation/test overlays from the actual multiband batch tensor.
 - `OlmoEarthPad` and `OlmoEarthCrop` reproduce the rslearn pad/crop step used
   by AWF and Nandi before normalizing Sentinel-2 inputs.
 

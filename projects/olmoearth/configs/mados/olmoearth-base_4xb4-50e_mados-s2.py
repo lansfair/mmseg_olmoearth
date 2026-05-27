@@ -171,7 +171,7 @@ default_hooks = dict(
         save_best="mIoU",
     ),
     sampler_seed=dict(type="DistSamplerSeedHook"),
-    visualization=dict(type="SegVisualizationHook"),
+    visualization=dict(type="OlmoEarthVisualizationHook"),
 )
 
 env_cfg = dict(

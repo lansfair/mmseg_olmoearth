@@ -2,7 +2,7 @@ from .backbones import OlmoEarthBackbone
 from .data_preprocessor import OlmoEarthSegDataPreProcessor
 from .datasets import DATASET_METAINFO, OlmoEarthSegDataset
 from .decode_heads import OlmoEarthLinearHead, OlmoEarthPatchLinearHead
-from .hooks import FreezeBackboneUntilEpochHook
+from .hooks import FreezeBackboneUntilEpochHook, OlmoEarthVisualizationHook
 from .losses import ValidMaskCrossEntropyLoss
 from .metrics import OlmoEarthAccuracyMetric, OlmoEarthIoUMetric
 from .segmentor import OlmoEarthEncoderDecoder
@@ -35,6 +35,7 @@ __all__ = [
     "OlmoEarthRandomFlip",
     "OlmoEarthSegDataset",
     "PackOlmoEarthSegInputs",
+    "OlmoEarthVisualizationHook",
     "RGBToOlmoEarthS2",
     "ValidMaskCrossEntropyLoss",
 ]
