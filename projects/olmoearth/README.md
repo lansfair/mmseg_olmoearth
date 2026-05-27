@@ -195,8 +195,9 @@ python tools/train.py \
 ```
 
 A UPerNet-style Potsdam config is also available. It follows OpenMMLab's
-Potsdam/UPerNet convention more closely with 512 crops, `UPerHead`, an
-auxiliary `FCNHead`, 80k iterations, `InfiniteSampler`, and `PolyLR`:
+Potsdam/UPerNet convention more closely with 512 crops, `MultiLevelNeck`,
+`UPerHead`, an auxiliary `FCNHead`, 80k iterations, `InfiniteSampler`, and
+`PolyLR`:
 
 ```bash
 python tools/train.py \
