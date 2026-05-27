@@ -31,7 +31,9 @@ class OlmoEarthBackbone(nn.Module):
 
     def __init__(
         self,
-        checkpoint_path: str,
+        checkpoint_path: str | None = None,
+        model_id: str | None = None,
+        config_path: str | None = None,
         modality: str = "sentinel2_l2a",
         patch_size: int = 4,
         num_timesteps: int = 12,
@@ -48,7 +50,11 @@ class OlmoEarthBackbone(nn.Module):
         self.fast_pass = fast_pass
         self.band_names = list(get_modality_bands(modality))
         self.sample_field = get_sample_field(modality)
-        self.model = load_olmoearth_model(checkpoint_path)
+        self.model = load_olmoearth_model(
+            checkpoint_path=checkpoint_path,
+            model_id=model_id,
+            config_path=config_path,
+        )
         self.encoder = self.model.encoder
         self._batch_metainfo: list[dict[str, Any]] | None = None
 
