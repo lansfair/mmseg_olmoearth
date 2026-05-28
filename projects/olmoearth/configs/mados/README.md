@@ -3,5 +3,6 @@ MADOS uses dataset-specific normalization in the OLMoEarth eval code:
 config in this directory uses `OlmoEarthDatasetNormalize` instead of pretraining
 computed statistics.
 
-`OlmoEarthIoUMetric` reports both `mIoU` and `micro_f1` so the experiment can
-track either paper/reporting convention without changing the evaluator.
+`OlmoEarthIoUMetric` reports MMSeg-style `aAcc`, `mIoU`, and `mAcc` by
+default. Add `iou_metrics=["mIoU", "mFscore"]` in the evaluator to also log
+`mFscore`, `mPrecision`, and `mRecall`.

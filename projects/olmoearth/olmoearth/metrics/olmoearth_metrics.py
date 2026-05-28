@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Optional, Sequence
 
+import numpy as np
 import torch
 from mmengine.evaluator import BaseMetric
+from mmengine.logging import MMLogger, print_log
 from mmseg.registry import METRICS
+from prettytable import PrettyTable
 
 
 def _sample_get(sample, key: str):
@@ -39,10 +42,10 @@ def _valid_mask_tensor(
 
 @METRICS.register_module()
 class OlmoEarthIoUMetric(BaseMetric):
-    """OLMoEarth-style segmentation metric.
+    """IoU metric with optional OLMoEarth valid-mask filtering.
 
-    This follows the pretraining eval path: filter ignored pixels, build a
-    confusion matrix, and average IoU only over classes whose union is nonzero.
+    The reported metric names and values follow MMSeg's ``IoUMetric``:
+    percentages for ``aAcc``, ``mIoU``, ``mAcc`` and optional F-score metrics.
     """
 
     default_prefix = None
@@ -51,6 +54,9 @@ class OlmoEarthIoUMetric(BaseMetric):
         self,
         num_classes: int,
         ignore_index: int = 255,
+        iou_metrics: str | Sequence[str] = "mIoU",
+        nan_to_num: Optional[int] = None,
+        beta: int = 1,
         use_valid_mask: bool = False,
         collect_device: str = "cpu",
         prefix: Optional[str] = None,
@@ -58,6 +64,11 @@ class OlmoEarthIoUMetric(BaseMetric):
         super().__init__(collect_device=collect_device, prefix=prefix)
         self.num_classes = num_classes
         self.ignore_index = ignore_index
+        self.metrics = [iou_metrics] if isinstance(iou_metrics, str) else list(
+            iou_metrics
+        )
+        self.nan_to_num = nan_to_num
+        self.beta = beta
         self.use_valid_mask = use_valid_mask
 
     def process(self, data_batch: dict, data_samples: Sequence[dict]) -> None:
@@ -71,68 +82,164 @@ class OlmoEarthIoUMetric(BaseMetric):
                     gt,
                     self.ignore_index,
                 )
-            self.results.append(
-                {"pred": pred.cpu(), "gt": gt.cpu(), "valid": valid.cpu()}
-            )
-
-    def compute_metrics(self, results: list[dict]) -> OrderedDict:
-        confusion = torch.zeros(
-            (self.num_classes, self.num_classes), dtype=torch.float64
-        )
-        for result in results:
-            pred = result["pred"].long()
-            gt = result["gt"].long()
-            valid = result["valid"].bool()
             pred = pred[valid]
             gt = gt[valid]
-            in_range = (gt >= 0) & (gt < self.num_classes)
-            pred = pred[in_range].clamp(0, self.num_classes - 1)
-            gt = gt[in_range]
-            if gt.numel() == 0:
-                continue
-            bincount = torch.bincount(
-                self.num_classes * gt + pred,
-                minlength=self.num_classes**2,
-            ).reshape(self.num_classes, self.num_classes)
-            confusion += bincount.to(confusion.dtype)
+            self.results.append(
+                self.intersect_and_union(
+                    pred,
+                    gt,
+                    self.num_classes,
+                )
+            )
 
-        tp = confusion.diag()
-        fp = confusion.sum(dim=0) - tp
-        fn = confusion.sum(dim=1) - tp
-        union = tp + fp + fn
-        iou = tp / (union + 1e-8)
-        valid_classes = union > 0
-        miou = iou[valid_classes].mean().item() if valid_classes.any() else 0.0
+    def compute_metrics(self, results: list) -> OrderedDict:
+        logger: MMLogger = MMLogger.get_current_instance()
+        results = tuple(zip(*results))
+        total_area_intersect = sum(results[0])
+        total_area_union = sum(results[1])
+        total_area_pred_label = sum(results[2])
+        total_area_label = sum(results[3])
 
-        total = confusion.sum()
-        overall_acc = (tp.sum() / (total + 1e-8)).item()
-        class_totals = tp + fn
-        per_class_acc = tp / (class_totals + 1e-8)
-        valid_acc_classes = class_totals > 0
-        macro_acc = (
-            per_class_acc[valid_acc_classes].mean().item()
-            if valid_acc_classes.any()
-            else 0.0
+        ret_metrics = self.total_area_to_metrics(
+            total_area_intersect,
+            total_area_union,
+            total_area_pred_label,
+            total_area_label,
+            self.metrics,
+            self.nan_to_num,
+            self.beta,
         )
-        precision = tp / (tp + fp + 1e-8)
-        recall = tp / (tp + fn + 1e-8)
-        per_class_f1 = 2 * precision * recall / (precision + recall + 1e-8)
-        valid_f1_classes = class_totals > 0
-        macro_f1 = (
-            per_class_f1[valid_f1_classes].mean().item()
-            if valid_f1_classes.any()
-            else 0.0
+        ret_metrics_summary = OrderedDict(
+            {
+                key: np.round(np.nanmean(value) * 100, 2)
+                for key, value in ret_metrics.items()
+            }
         )
-        micro_f1 = (
-            2 * tp.sum() / (2 * tp.sum() + fp.sum() + fn.sum() + 1e-8)
-        ).item()
-        return OrderedDict(
-            mIoU=miou,
-            overall_acc=overall_acc,
-            macro_acc=macro_acc,
-            macro_f1=macro_f1,
-            micro_f1=micro_f1,
+        metrics = OrderedDict()
+        for key, value in ret_metrics_summary.items():
+            if key == "aAcc":
+                metrics[key] = value
+            else:
+                metrics[f"m{key}"] = value
+
+        ret_metrics.pop("aAcc", None)
+        ret_metrics_class = OrderedDict(
+            {
+                key: np.round(value * 100, 2)
+                for key, value in ret_metrics.items()
+            }
         )
+        ret_metrics_class.update({"Class": self._class_names()})
+        ret_metrics_class.move_to_end("Class", last=False)
+
+        class_table_data = PrettyTable()
+        for key, value in ret_metrics_class.items():
+            class_table_data.add_column(key, value)
+        print_log("per class results:", logger)
+        print_log("\n" + class_table_data.get_string(), logger=logger)
+
+        return metrics
+
+    def _class_names(self) -> list[str]:
+        if hasattr(self, "dataset_meta") and self.dataset_meta is not None:
+            classes = self.dataset_meta.get("classes")
+            if classes is not None:
+                return list(classes)
+        return [f"class_{idx}" for idx in range(self.num_classes)]
+
+    @staticmethod
+    def intersect_and_union(
+        pred_label: torch.Tensor,
+        label: torch.Tensor,
+        num_classes: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        in_range = (label >= 0) & (label < num_classes)
+        pred_label = pred_label[in_range].clamp(0, num_classes - 1)
+        label = label[in_range]
+
+        intersect = pred_label[pred_label == label]
+        area_intersect = torch.histc(
+            intersect.float(),
+            bins=num_classes,
+            min=0,
+            max=num_classes - 1,
+        ).cpu()
+        area_pred_label = torch.histc(
+            pred_label.float(),
+            bins=num_classes,
+            min=0,
+            max=num_classes - 1,
+        ).cpu()
+        area_label = torch.histc(
+            label.float(),
+            bins=num_classes,
+            min=0,
+            max=num_classes - 1,
+        ).cpu()
+        area_union = area_pred_label + area_label - area_intersect
+        return area_intersect, area_union, area_pred_label, area_label
+
+    @staticmethod
+    def total_area_to_metrics(
+        total_area_intersect: torch.Tensor,
+        total_area_union: torch.Tensor,
+        total_area_pred_label: torch.Tensor,
+        total_area_label: torch.Tensor,
+        metrics: Sequence[str] = ("mIoU",),
+        nan_to_num: Optional[int] = None,
+        beta: int = 1,
+    ) -> OrderedDict:
+        def f_score(precision, recall, beta=1):
+            return (1 + beta**2) * (precision * recall) / (
+                (beta**2 * precision) + recall
+            )
+
+        allowed_metrics = ["mIoU", "mDice", "mFscore"]
+        if not set(metrics).issubset(set(allowed_metrics)):
+            raise KeyError(f"metrics {metrics} is not supported")
+
+        all_acc = total_area_intersect.sum() / total_area_label.sum()
+        ret_metrics = OrderedDict({"aAcc": all_acc})
+        for metric in metrics:
+            if metric == "mIoU":
+                iou = total_area_intersect / total_area_union
+                acc = total_area_intersect / total_area_label
+                ret_metrics["IoU"] = iou
+                ret_metrics["Acc"] = acc
+            elif metric == "mDice":
+                dice = 2 * total_area_intersect / (
+                    total_area_pred_label + total_area_label
+                )
+                acc = total_area_intersect / total_area_label
+                ret_metrics["Dice"] = dice
+                ret_metrics["Acc"] = acc
+            elif metric == "mFscore":
+                precision = total_area_intersect / total_area_pred_label
+                recall = total_area_intersect / total_area_label
+                f_value = torch.tensor(
+                    [
+                        f_score(pair[0], pair[1], beta)
+                        for pair in zip(precision, recall)
+                    ]
+                )
+                ret_metrics["Fscore"] = f_value
+                ret_metrics["Precision"] = precision
+                ret_metrics["Recall"] = recall
+
+        ret_metrics = OrderedDict(
+            {
+                metric: value.numpy()
+                for metric, value in ret_metrics.items()
+            }
+        )
+        if nan_to_num is not None:
+            ret_metrics = OrderedDict(
+                {
+                    metric: np.nan_to_num(value, nan=nan_to_num)
+                    for metric, value in ret_metrics.items()
+                }
+            )
+        return ret_metrics
 
 
 @METRICS.register_module()

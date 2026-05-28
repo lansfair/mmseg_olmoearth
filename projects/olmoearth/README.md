@@ -22,9 +22,8 @@ training.
 - `OlmoEarthPatchLinearHead` implements the paper-style patch-linear dense
   probe. `OlmoEarthLinearHead` remains available for conventional MMSeg-style
   upsample-and-classify experiments.
-- `OlmoEarthIoUMetric` follows the OLMoEarth pretrain eval path: filter ignored
-  pixels, build a confusion matrix, and average IoU over classes with nonzero
-  union.
+- `OlmoEarthIoUMetric` keeps OLMoEarth's optional valid-mask filtering while
+  reporting MMSeg-style `aAcc`, `mIoU`, `mAcc`, and optional F-score metrics.
 - `OlmoEarthVisualizationHook` avoids MMSeg's default RGB-file assumption and
   renders validation/test overlays from the actual multiband batch tensor.
 - `OlmoEarthPad` and `OlmoEarthCrop` reproduce the rslearn pad/crop step used

@@ -8,11 +8,12 @@ olmoearth_model_dir = "checkpoints/olmoearth"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
 work_dir = (
-    "./work_dirs/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512"
+    "./work_dirs/"
+    "olmoearth-base_upernet_4xb4-80k_potsdam-rgb-rvsa-p4-512x512"
 )
 
-ignore_index = 255
-num_classes = 6
+ignore_index = 5
+num_classes = 5
 num_timesteps = 1
 crop_size = 512
 patch_size = 4
@@ -68,6 +69,7 @@ train_dataloader = dict(
             img_path="img_dir/train",
             seg_map_path="ann_dir/train",
         ),
+        label_mapping="official_to_rvsa_class5_ignore5",
         pipeline=train_pipeline,
     ),
 )
@@ -84,6 +86,7 @@ val_dataloader = dict(
             img_path="img_dir/val",
             seg_map_path="ann_dir/val",
         ),
+        label_mapping="official_to_rvsa_class5_ignore5",
         pipeline=test_pipeline,
     ),
 )
@@ -93,6 +96,7 @@ val_evaluator = dict(
     type="OlmoEarthIoUMetric",
     num_classes=num_classes,
     ignore_index=ignore_index,
+    iou_metrics=["mIoU", "mFscore"],
     use_valid_mask=False,
 )
 test_evaluator = val_evaluator
@@ -165,7 +169,7 @@ model = dict(
     test_cfg=dict(mode="whole"),
 )
 
-custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
+custom_hooks = []
 
 optim_wrapper = dict(
     type="OptimWrapper",
