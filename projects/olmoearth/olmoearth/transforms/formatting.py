@@ -29,6 +29,8 @@ class PackOlmoEarthSegInputs(BaseTransform):
             "present_bands",
             "timestamps",
             "olmoearth_rgb_adapter",
+            "olmoearth_raw_img",
+            "olmoearth_raw_band_names",
         ),
     ) -> None:
         self.meta_keys = meta_keys

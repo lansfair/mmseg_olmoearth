@@ -139,12 +139,14 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         invalid_label_to_ignore: bool = True,
         label_resample_order: int = 0,
         default_timestamp: tuple[int, int, int] = (15, 4, 2024),
+        keep_raw_input: bool = False,
     ) -> None:
         self.num_classes = int(num_classes)
         self.ignore_index = int(ignore_index)
         self.invalid_label_to_ignore = bool(invalid_label_to_ignore)
         self.label_resample_order = int(label_resample_order)
         self.default_timestamp = tuple(int(x) for x in default_timestamp)
+        self.keep_raw_input = bool(keep_raw_input)
         self._dataset = None
         self._task = None
         self._dataset_key = None
@@ -212,6 +214,7 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
             sample,
             OFFICIAL_EVAL_S2_BAND_NAMES,
         ).astype(np.float32)
+        raw_image = image_13.astype(np.float32)
         image_13 = _norm_no_clip_2_std(
             image_13,
             self._means_13,
@@ -246,6 +249,9 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
             label[invalid] = self.ignore_index
 
         results["img"] = np.ascontiguousarray(image)
+        if self.keep_raw_input:
+            results["olmoearth_raw_img"] = np.ascontiguousarray(raw_image)
+            results["olmoearth_raw_band_names"] = OFFICIAL_EVAL_S2_BAND_NAMES
         results["gt_seg_map"] = np.ascontiguousarray(label)
         results["img_shape"] = image.shape[:2]
         results["ori_shape"] = image.shape[:2]

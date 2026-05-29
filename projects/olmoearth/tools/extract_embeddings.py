@@ -124,7 +124,24 @@ def _load_json(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def _build_dataset(cfg, split: str, pipeline_key: str | None):
+def _enable_raw_input_export(
+    pipeline: list[dict[str, Any]],
+    enabled: bool,
+) -> list[dict[str, Any]]:
+    if not enabled:
+        return pipeline
+    for transform in pipeline:
+        if transform.get("type") == "LoadGeoBenchS2OfficialNorm":
+            transform["keep_raw_input"] = True
+    return pipeline
+
+
+def _build_dataset(
+    cfg,
+    split: str,
+    pipeline_key: str | None,
+    save_raw_inputs: bool,
+):
     from mmseg.registry import DATASETS
 
     dataloader_key = f"{split}_dataloader"
@@ -135,6 +152,11 @@ def _build_dataset(cfg, split: str, pipeline_key: str | None):
         if pipeline_key not in cfg:
             raise KeyError(f"Config does not define {pipeline_key}.")
         dataset_cfg["pipeline"] = copy.deepcopy(cfg[pipeline_key])
+    if "pipeline" in dataset_cfg:
+        dataset_cfg["pipeline"] = _enable_raw_input_export(
+            dataset_cfg["pipeline"],
+            save_raw_inputs,
+        )
     return DATASETS.build(dataset_cfg)
 
 
@@ -169,6 +191,7 @@ def _make_manifest_sample(
     feature_shape: list[int],
     metainfo: dict[str, Any],
     input_shape: list[int] | None = None,
+    raw_input_shape: list[int] | None = None,
 ) -> dict[str, Any]:
     embedding_rel = Path(split) / sample_id / "embedding.tif"
     label_rel = Path(split) / sample_id / "label.tif"
@@ -185,6 +208,10 @@ def _make_manifest_sample(
         input_rel = Path(split) / sample_id / "input.tif"
         sample["input_path"] = str(input_rel).replace("\\", "/")
         sample["input_shape"] = input_shape
+    if raw_input_shape is not None:
+        raw_input_rel = Path(split) / sample_id / "raw_input.tif"
+        sample["raw_input_path"] = str(raw_input_rel).replace("\\", "/")
+        sample["raw_input_shape"] = raw_input_shape
     if "timestamps" in metainfo:
         sample["timestamps"] = _jsonable(metainfo["timestamps"])
     return sample
@@ -202,6 +229,7 @@ def _task_from_item(
     sample_dir = output_root / split / sample_id
     embedding_path = sample_dir / "embedding.tif"
     input_path = sample_dir / "input.tif"
+    raw_input_path = sample_dir / "raw_input.tif"
     label_path = sample_dir / "label.tif"
     label = data_sample.gt_sem_seg.data.squeeze(0).cpu().numpy()
     return {
@@ -212,6 +240,7 @@ def _task_from_item(
         "sample_dir": sample_dir,
         "embedding_path": embedding_path,
         "input_path": input_path,
+        "raw_input_path": raw_input_path,
         "label_path": label_path,
         "label": label,
     }
@@ -222,6 +251,7 @@ def _save_task_output(
     feature: np.ndarray,
     embedding_names: list[str],
     save_inputs: bool,
+    save_raw_inputs: bool,
 ) -> dict[str, Any]:
     task["sample_dir"].mkdir(parents=True, exist_ok=True)
     save_geotiff(
@@ -237,6 +267,27 @@ def _save_task_output(
             input_arr.astype(np.float32, copy=False),
         )
         input_shape = list(input_arr.shape)
+    raw_input_shape = None
+    if save_raw_inputs:
+        raw_img = task["metainfo"].get("olmoearth_raw_img")
+        if raw_img is None:
+            raise KeyError(
+                "Raw input export was requested, but the pipeline did not "
+                "provide 'olmoearth_raw_img'."
+            )
+        raw_img = np.asarray(raw_img, dtype=np.float32)
+        if raw_img.ndim != 3:
+            raise ValueError(
+                f"Expected raw input as HWC, got shape {raw_img.shape}"
+            )
+        raw_chw = np.ascontiguousarray(raw_img.transpose(2, 0, 1))
+        band_names = task["metainfo"].get("olmoearth_raw_band_names")
+        save_geotiff(
+            task["raw_input_path"],
+            raw_chw,
+            descriptions=band_names,
+        )
+        raw_input_shape = list(raw_chw.shape)
     save_geotiff(task["label_path"], task["label"])
     return _make_manifest_sample(
         index=task["index"],
@@ -246,6 +297,7 @@ def _save_task_output(
         feature_shape=list(feature.shape),
         metainfo=task["metainfo"],
         input_shape=input_shape,
+        raw_input_shape=raw_input_shape,
     )
 
 
@@ -254,6 +306,7 @@ def _maybe_manifest_from_existing(
     split: str,
     skip_existing: bool,
     save_inputs: bool,
+    save_raw_inputs: bool,
 ) -> dict[str, Any] | None:
     if not skip_existing:
         return None
@@ -264,6 +317,11 @@ def _maybe_manifest_from_existing(
         if not task["input_path"].exists():
             return None
         input_shape = _embedding_shape(task["input_path"])
+    raw_input_shape = None
+    if save_raw_inputs:
+        if not task["raw_input_path"].exists():
+            return None
+        raw_input_shape = _embedding_shape(task["raw_input_path"])
     return _make_manifest_sample(
         index=task["index"],
         split=split,
@@ -272,6 +330,7 @@ def _maybe_manifest_from_existing(
         feature_shape=_embedding_shape(task["embedding_path"]),
         metainfo=task["metainfo"],
         input_shape=input_shape,
+        raw_input_shape=raw_input_shape,
     )
 
 
@@ -315,6 +374,7 @@ def _flush_shape_buckets(
     precision: str,
     embedding_names: list[str] | None,
     save_inputs: bool,
+    save_raw_inputs: bool,
     verbose: bool,
     rank: int,
 ) -> list[str] | None:
@@ -345,7 +405,13 @@ def _flush_shape_buckets(
             ]
         for task, feature in zip(tasks, features):
             split_samples.append(
-                _save_task_output(task, feature, embedding_names, save_inputs)
+                _save_task_output(
+                    task,
+                    feature,
+                    embedding_names,
+                    save_inputs,
+                    save_raw_inputs,
+                )
             )
         buckets[shape] = []
         _clear_cache(device)
@@ -363,9 +429,10 @@ def _extract_split(
     precision: str,
     skip_existing: bool,
     save_inputs: bool,
+    save_raw_inputs: bool,
     verbose: bool,
 ) -> dict[str, Any]:
-    dataset = _build_dataset(cfg, split, pipeline_key)
+    dataset = _build_dataset(cfg, split, pipeline_key, save_raw_inputs)
     backbone = _build_backbone(cfg, device)
     local_indices = _split_indices(len(dataset), ctx)
     split_samples: list[dict[str, Any]] = []
@@ -381,6 +448,7 @@ def _extract_split(
                 split,
                 skip_existing,
                 save_inputs,
+                save_raw_inputs,
             )
             if existing is not None:
                 split_samples.append(existing)
@@ -399,6 +467,7 @@ def _extract_split(
                     precision=precision,
                     embedding_names=embedding_names,
                     save_inputs=save_inputs,
+                    save_raw_inputs=save_raw_inputs,
                     verbose=verbose,
                     rank=ctx.rank,
                 )
@@ -412,6 +481,7 @@ def _extract_split(
             precision=precision,
             embedding_names=embedding_names,
             save_inputs=save_inputs,
+            save_raw_inputs=save_raw_inputs,
             verbose=verbose,
             rank=ctx.rank,
         )
@@ -439,6 +509,7 @@ def _extract_split(
         "num_samples": len(split_samples),
         "skipped_existing": skipped_count,
         "save_inputs": save_inputs,
+        "save_raw_inputs": save_raw_inputs,
         "manifest": str(manifest_path),
     }
 
@@ -517,6 +588,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--save-raw-inputs",
+        action="store_true",
+        help=(
+            "Also save raw_input.tif for inspection when the loader can "
+            "provide a pre-normalization source image. For crop-type this is "
+            "the 13-band GEO-Bench Sentinel-2 image before OLMoEarth "
+            "normalization."
+        ),
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Reduce per-batch logging.",
@@ -571,6 +652,7 @@ def main() -> None:
                 precision=args.precision,
                 skip_existing=args.skip_existing,
                 save_inputs=args.save_inputs,
+                save_raw_inputs=args.save_raw_inputs,
                 verbose=not args.quiet,
             )
             for split in args.splits
@@ -585,6 +667,7 @@ def main() -> None:
                 "precision": args.precision,
                 "batch_size": args.batch_size,
                 "save_inputs": args.save_inputs,
+                "save_raw_inputs": args.save_raw_inputs,
                 "splits": local_summaries,
             },
         )
@@ -606,6 +689,7 @@ def main() -> None:
                     "precision": args.precision,
                     "batch_size": args.batch_size,
                     "save_inputs": args.save_inputs,
+                    "save_raw_inputs": args.save_raw_inputs,
                     "splits": summaries,
                 },
             )
