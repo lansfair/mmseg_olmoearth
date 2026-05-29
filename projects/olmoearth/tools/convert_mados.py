@@ -30,6 +30,7 @@ S2_BANDS = [
     "B01",
     "B09",
 ]
+EVAL_TO_OLMOEARTH_S2_BANDS = [1, 2, 3, 7, 4, 5, 6, 8, 11, 12, 0, 9]
 
 
 def _convert_split(
@@ -39,17 +40,6 @@ def _convert_split(
     manifest_name: str,
 ) -> dict:
     import torch
-
-    try:
-        from olmoearth_pretrain.evals.datasets.constants import (
-            EVAL_TO_OLMOEARTH_S2_BANDS,
-        )
-    except ImportError as exc:
-        raise RuntimeError(
-            "convert_mados.py expects olmoearth_pretrain on PYTHONPATH "
-            "so it can reuse the exact Sentinel-2 band-order mapping "
-            "from the original eval code."
-        ) from exc
 
     obj = torch.load(input_root / f"MADOS_{split}.pt", map_location="cpu")
     images = obj["images"]

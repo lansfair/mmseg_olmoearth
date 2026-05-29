@@ -1,4 +1,5 @@
 from .augment import OlmoEarthCrop, OlmoEarthPad, OlmoEarthRandomFlip
+from .embedding import LoadOlmoEarthEmbedding
 from .formatting import PackOlmoEarthSegInputs
 from .geobench import LoadGeoBenchS2OfficialNorm
 from .loading import LoadOlmoEarthArrays
@@ -11,6 +12,7 @@ from .normalize import (
 __all__ = [
     "LoadGeoBenchS2OfficialNorm",
     "LoadOlmoEarthArrays",
+    "LoadOlmoEarthEmbedding",
     "OlmoEarthDatasetNormalize",
     "OlmoEarthCrop",
     "OlmoEarthNormalize",

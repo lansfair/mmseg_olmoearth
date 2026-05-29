@@ -17,6 +17,9 @@ training.
 - `OlmoEarthBackbone` builds the OLMoEarth encoder from `model_config_path`,
   loads released weights through OpenMMLab `init_cfg`, and reuses OLMoEarth's
   reference `pool_unmasked_tokens` path to produce dense features.
+- `OlmoEarthFeatureBackbone` is the offline-probe path: it reads precomputed
+  dense OLMoEarth embeddings as the model input and trains only the probe head,
+  matching OLMoEarth's original linear-probe evaluation shape.
 - `OlmoEarthEncoderDecoder` passes temporal metadata from `SegDataSample` to the
   backbone.
 - `OlmoEarthPatchLinearHead` implements the paper-style patch-linear dense
@@ -203,6 +206,28 @@ python tools/train.py \
 
 Set `geobench_root` and `olmoearth_model_dir` at the top of the config before
 running.
+
+For the faster paper-style offline linear probe, first extract dense
+OLMoEarth embeddings once:
+
+```bash
+python projects/olmoearth/tools/extract_embeddings.py \
+  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-linear.py \
+  --output-root /mnt/ht2-nas2/EO_test/dataset/crop_type_olmoearth_embeddings \
+  --batch-size 32 \
+  --device cuda
+```
+
+Then train only the patch-linear probe from the extracted embedding GeoTIFFs:
+
+```bash
+python tools/train.py \
+  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-offline-linear.py
+```
+
+This is much closer to the original OLMoEarth evaluator: encoder forward is
+paid once during extraction, and the 50-epoch probe training loop no longer
+recomputes the OLMoEarth backbone.
 
 ## Potsdam
 

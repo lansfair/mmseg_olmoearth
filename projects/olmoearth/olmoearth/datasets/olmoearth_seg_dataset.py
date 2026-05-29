@@ -111,6 +111,7 @@ class OlmoEarthSegDataset(BaseDataset):
         for sample in samples:
             item = dict(sample)
             for key in (
+                "embedding_path",
                 "seg_map_path",
                 "valid_mask_path",
             ):

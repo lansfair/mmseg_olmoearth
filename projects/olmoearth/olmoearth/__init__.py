@@ -1,4 +1,4 @@
-from .backbones import OlmoEarthBackbone
+from .backbones import OlmoEarthBackbone, OlmoEarthFeatureBackbone
 from .data_preprocessor import OlmoEarthSegDataPreProcessor
 from .datasets import DATASET_METAINFO, GeoBenchS2SegDataset
 from .datasets import OlmoEarthPotsdamDataset
@@ -11,6 +11,7 @@ from .segmentor import OlmoEarthEncoderDecoder
 from .transforms import (
     LoadGeoBenchS2OfficialNorm,
     LoadOlmoEarthArrays,
+    LoadOlmoEarthEmbedding,
     OlmoEarthCrop,
     OlmoEarthDatasetNormalize,
     OlmoEarthNormalize,
@@ -26,6 +27,7 @@ __all__ = [
     "GeoBenchS2SegDataset",
     "LoadGeoBenchS2OfficialNorm",
     "LoadOlmoEarthArrays",
+    "LoadOlmoEarthEmbedding",
     "OlmoEarthAccuracyMetric",
     "OlmoEarthBackbone",
     "OlmoEarthCrop",
@@ -34,6 +36,7 @@ __all__ = [
     "OlmoEarthEncoderDecoder",
     "OlmoEarthIoUMetric",
     "OlmoEarthLinearHead",
+    "OlmoEarthFeatureBackbone",
     "OlmoEarthNormalize",
     "OlmoEarthPad",
     "OlmoEarthPatchLinearHead",

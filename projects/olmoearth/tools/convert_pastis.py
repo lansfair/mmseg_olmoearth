@@ -32,6 +32,8 @@ S2_BANDS = [
     "B09",
 ]
 S1_BANDS = ["vv", "vh"]
+EVAL_TO_OLMOEARTH_S2_BANDS = [1, 2, 3, 7, 4, 5, 6, 8, 11, 12, 0, 9]
+EVAL_TO_OLMOEARTH_S1_BANDS = [0, 1]
 
 
 def _mkdir(path: Path) -> None:
@@ -55,18 +57,6 @@ def _convert_split(
     ignore_index: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     import torch
-
-    try:
-        from olmoearth_pretrain.evals.datasets.constants import (
-            EVAL_TO_OLMOEARTH_S1_BANDS,
-            EVAL_TO_OLMOEARTH_S2_BANDS,
-        )
-    except ImportError as exc:
-        raise RuntimeError(
-            "convert_pastis.py expects olmoearth_pretrain on PYTHONPATH "
-            "to reuse the exact band-order mapping from the original eval "
-            "code."
-        ) from exc
 
     split_dir = input_root / f"pastis_r_{split}"
     labels = torch.load(split_dir / "targets.pt", map_location="cpu")
