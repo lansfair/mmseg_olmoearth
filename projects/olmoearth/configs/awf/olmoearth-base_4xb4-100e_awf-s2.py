@@ -17,7 +17,6 @@ patch_size = 4
 train_pipeline = [
     dict(
         type="LoadOlmoEarthArrays",
-        image_layout="CTHW",
         ignore_index=ignore_index,
     ),
     dict(type="OlmoEarthPad", size=31, mode="center"),
@@ -34,7 +33,6 @@ train_pipeline = [
 test_pipeline = [
     dict(
         type="LoadOlmoEarthArrays",
-        image_layout="CTHW",
         ignore_index=ignore_index,
     ),
     dict(type="OlmoEarthPad", size=31, mode="center"),

@@ -4,62 +4,81 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
 from mmcv.transforms import BaseTransform
 from mmseg.registry import TRANSFORMS
 
 
 def _load_array(path: str | Path) -> np.ndarray:
     path = Path(path)
-    if path.suffix.lower() == ".npy":
-        return np.load(path)
-    if path.suffix.lower() in {".pt", ".pth"}:
-        value = torch.load(path, map_location="cpu")
-        if isinstance(value, torch.Tensor):
-            return value.detach().cpu().numpy()
-        return np.asarray(value)
-    raise ValueError(f"Unsupported array file suffix: {path}")
+    if path.suffix.lower() in {".tif", ".tiff"}:
+        try:
+            import rasterio
+        except ImportError as exc:
+            raise ImportError(
+                "Reading GeoTIFF inputs requires rasterio."
+            ) from exc
+        with rasterio.open(path) as src:
+            array = src.read()
+        if array.shape[0] == 1:
+            return array[0]
+        return array
+    raise ValueError(f"Only GeoTIFF arrays are supported, got: {path}")
 
 
-def _to_hw_flat(image: np.ndarray, layout: str) -> np.ndarray:
-    layout = layout.upper()
-    if layout == "HWC":
-        return image
-    if layout == "HWTC":
-        h, w, t, c = image.shape
-        return image.transpose(0, 1, 3, 2).reshape(h, w, c * t)
-    if layout == "HWCT":
-        h, w, c, t = image.shape
-        return image.reshape(h, w, c * t)
-    if layout == "TCHW":
-        t, c, h, w = image.shape
-        return image.transpose(2, 3, 1, 0).reshape(h, w, c * t)
-    if layout == "CTHW":
-        c, t, h, w = image.shape
-        return image.transpose(2, 3, 0, 1).reshape(h, w, c * t)
-    raise ValueError(f"Unsupported OLMoEarth image layout: {layout}")
+def _tchw_to_hw_flat(image: np.ndarray) -> np.ndarray:
+    if image.ndim != 4:
+        raise ValueError(f"Expected stacked GeoTIFF image as TCHW, got {image.shape}")
+    t, c, h, w = image.shape
+    return image.transpose(2, 3, 1, 0).reshape(h, w, c * t)
+
+
+def _load_multitif(paths: list[str | Path]) -> np.ndarray:
+    images = []
+    for path in paths:
+        image = _load_array(path)
+        if image.ndim == 2:
+            image = image[None, ...]
+        if image.ndim != 3:
+            raise ValueError(
+                "Each path in img_paths must load to CHW or HW GeoTIFF data, "
+                f"got shape {image.shape} from {path}"
+            )
+        images.append(image)
+    shape_set = {image.shape for image in images}
+    if len(shape_set) != 1:
+        raise ValueError(
+            "All img_paths in one sample must have the same CHW shape, "
+            f"got {sorted(shape_set)}"
+        )
+    return np.stack(images, axis=0)
 
 
 @TRANSFORMS.register_module()
 class LoadOlmoEarthArrays(BaseTransform):
-    """Load OLMoEarth image, label, optional mask and timestamps."""
+    """Load OLMoEarth GeoTIFF images, labels, optional masks and timestamps."""
 
     def __init__(
         self,
-        image_layout: str = "TCHW",
         ignore_index: int = 255,
         source_ignore_values: tuple[int, ...] = (-1,),
         reduce_zero_label: bool = False,
     ) -> None:
-        self.image_layout = image_layout
         self.ignore_index = ignore_index
         self.source_ignore_values = source_ignore_values
         self.reduce_zero_label = reduce_zero_label
 
     def transform(self, results: dict[str, Any]) -> dict[str, Any]:
         results["seg_fields"] = ["gt_seg_map"]
-        image = _load_array(results["img_path"]).astype(np.float32, copy=False)
-        results["img"] = _to_hw_flat(image, self.image_layout)
+        if "img_paths" not in results:
+            raise KeyError(
+                "Manifest samples must provide 'img_paths' with one GeoTIFF "
+                "per timestep."
+            )
+        image = _load_multitif(results["img_paths"]).astype(
+            np.float32,
+            copy=False,
+        )
+        results["img"] = _tchw_to_hw_flat(image)
         results["img_shape"] = results["img"].shape[:2]
         results["ori_shape"] = results["img"].shape[:2]
 
@@ -81,12 +100,7 @@ class LoadOlmoEarthArrays(BaseTransform):
             results["gt_valid_mask"] = valid
             results["seg_fields"].append("gt_valid_mask")
 
-        timestamps_path = results.get("timestamps_path")
-        if timestamps_path is not None:
-            results["timestamps"] = _load_array(timestamps_path).astype(
-                np.int64
-            )
-        elif "timestamps" in results:
+        if "timestamps" in results:
             results["timestamps"] = np.asarray(
                 results["timestamps"],
                 dtype=np.int64,

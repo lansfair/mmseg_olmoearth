@@ -10,6 +10,8 @@ from mmseg.registry import DATASETS
 from ..utils import (
     AWF_CLASSES,
     AWF_PALETTE,
+    CROP_TYPE_CLASSES,
+    CROP_TYPE_PALETTE,
     MADOS_CLASSES,
     MADOS_PALETTE,
     NANDI_CLASSES,
@@ -33,6 +35,10 @@ DATASET_METAINFO = {
     "awf": {"classes": AWF_CLASSES, "palette": AWF_PALETTE},
     "nandi": {"classes": NANDI_CLASSES, "palette": NANDI_PALETTE},
     "potsdam": {"classes": POTSDAM_CLASSES, "palette": POTSDAM_PALETTE},
+    "crop_type": {
+        "classes": CROP_TYPE_CLASSES,
+        "palette": CROP_TYPE_PALETTE,
+    },
 }
 
 
@@ -87,6 +93,11 @@ class OlmoEarthSegDataset(BaseDataset):
             return str(path)
         return str(Path(self.data_root) / path)
 
+    def _resolve_paths(self, values: list[str | Path] | None) -> list[str] | None:
+        if values is None:
+            return None
+        return [self._resolve_path(value) for value in values]
+
     def load_data_list(self) -> list[dict[str, Any]]:
         with open(self.ann_file, "r", encoding="utf-8") as f:
             payload = json.load(f)
@@ -100,13 +111,13 @@ class OlmoEarthSegDataset(BaseDataset):
         for sample in samples:
             item = dict(sample)
             for key in (
-                "img_path",
                 "seg_map_path",
                 "valid_mask_path",
-                "timestamps_path",
             ):
                 if key in item:
                     item[key] = self._resolve_path(item[key])
+            if "img_paths" in item:
+                item["img_paths"] = self._resolve_paths(item["img_paths"])
             item.setdefault("dataset_name", self.dataset_name)
             data_list.append(item)
         return data_list

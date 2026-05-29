@@ -40,6 +40,31 @@ POTSDAM_PALETTE = [
     [255, 0, 0],
 ]
 
+CROP_TYPE_CLASSES = (
+    "Background",
+    "Lucerne/Medics",
+    "Planted pastures (perennial)",
+    "Fallow",
+    "Wine grapes",
+    "Weeds",
+    "Small grain grazing",
+    "Wheat",
+    "Canola",
+    "Rooibos",
+)
+CROP_TYPE_PALETTE = [
+    [0, 0, 0],
+    [166, 206, 227],
+    [31, 120, 180],
+    [178, 223, 138],
+    [51, 160, 44],
+    [251, 154, 153],
+    [227, 26, 28],
+    [253, 191, 111],
+    [255, 127, 0],
+    [202, 178, 214],
+]
+
 
 PASTIS_CLASSES = (
     "background",

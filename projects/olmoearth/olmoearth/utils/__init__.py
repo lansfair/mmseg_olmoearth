@@ -2,6 +2,8 @@ from .checkpoint import build_olmoearth_model
 from .modalities import (
     AWF_CLASSES,
     AWF_PALETTE,
+    CROP_TYPE_CLASSES,
+    CROP_TYPE_PALETTE,
     MADOS_CLASSES,
     MADOS_PALETTE,
     MODALITY_SPECS,
@@ -23,6 +25,8 @@ from .modalities import (
 __all__ = [
     "AWF_CLASSES",
     "AWF_PALETTE",
+    "CROP_TYPE_CLASSES",
+    "CROP_TYPE_PALETTE",
     "MADOS_CLASSES",
     "MADOS_PALETTE",
     "MODALITY_SPECS",

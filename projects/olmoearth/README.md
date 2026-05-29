@@ -29,9 +29,10 @@ training.
 - `OlmoEarthPad` and `OlmoEarthCrop` reproduce the rslearn pad/crop step used
   by AWF and Nandi before normalizing Sentinel-2 inputs.
 
-The primary dependency path is the local/full `olmoearth_pretrain` package. The
-runtime does not read paths from environment variables; set `data_root`,
-`model.backbone.model_config_path`, and
+The primary dependency path is the local/full `olmoearth_pretrain` package.
+Converted OLMoEarth manifest datasets are GeoTIFF-only, so both conversion and
+training require `rasterio`. The runtime does not read paths from environment
+variables; set `data_root`, `model.backbone.model_config_path`, and
 `model.backbone.init_cfg.checkpoint` directly in config files or with
 `--cfg-options`.
 
@@ -61,17 +62,38 @@ data/olmoearth_mmseg/pastis/
   test.json
   metainfo.json
   samples/train_000000/
-    sentinel2_l2a.npy
-    sentinel1.npy
-    label.npy
-    valid_mask.npy
-    timestamps.npy
+    t00_sentinel2_l2a.tif
+    t01_sentinel2_l2a.tif
+    ...
+    label.tif
+    valid_mask.tif
 ```
 
-Image arrays are stored as raw, unnormalized tensors. Normalization is done in
-the MMSeg pipeline with OLMoEarth computed statistics. Converters also write
-`metainfo.json` with class counts, band order, split label statistics, and
-normalization provenance so converted data can be audited before training.
+Image arrays are stored as one raw, unnormalized GeoTIFF per timestep.
+Normalization is done in the MMSeg pipeline with OLMoEarth computed
+statistics. Converters also write `metainfo.json` with class counts, band
+order, split label statistics, and normalization provenance so converted data
+can be audited before training.
+
+Manifests use `img_paths`, with one GeoTIFF per timestep:
+
+```json
+{
+  "sample_id": "train_000000",
+  "img_paths": [
+    "samples/train_000000/t00_sentinel2_l2a.tif",
+    "samples/train_000000/t01_sentinel2_l2a.tif"
+  ],
+  "seg_map_path": "samples/train_000000/label.tif",
+  "timestamps": [[1, 4, 2020], [1, 5, 2020]],
+  "olmoearth_modality": "sentinel2_l2a",
+  "olmoearth_num_timesteps": 2
+}
+```
+
+Each image GeoTIFF is read as `[C, H, W]`, the list is stacked as
+`[T, C, H, W]`, and the existing OLMoEarth loader flattens it to MMSeg's
+channel-first tensor. Labels and valid masks are GeoTIFFs too.
 
 ## PASTIS
 
@@ -164,6 +186,23 @@ python projects/olmoearth/tools/check_forward.py \
 RGB is supported only as an explicit adapter through `RGBToOlmoEarthS2`. It maps
 R/G/B to Sentinel-2 B04/B03/B02 and fills missing Sentinel-2 bands with
 normalized zero. This is not a paper-reproduction path.
+
+## GEO-Bench Crop-Type
+
+The `m-SA-crop-type` config uses GEO-Bench's Sentinel-2 L2A segmentation task
+as a single-timestep OLMoEarth input. The loader reads the official 13
+GEO-Bench Sentinel-2 bands, imputes B10 from B11, applies the OLMoEarth
+`NORM_NO_CLIP_2_STD` normalization from task band statistics, then selects the
+12-band OLMoEarth Sentinel-2 L2A order. The encoder is frozen and trained with
+the patch-linear probe used by OLMoEarth downstream segmentation evals.
+
+```bash
+python tools/train.py \
+  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-linear.py
+```
+
+Set `geobench_root` and `olmoearth_model_dir` at the top of the config before
+running.
 
 ## Potsdam
 

@@ -8,7 +8,13 @@ from typing import Any
 
 import numpy as np
 
-from common import label_stats, save_json, validate_labels
+from common import (
+    label_stats,
+    save_geotiff,
+    save_json,
+    save_timesteps_as_geotiffs,
+    validate_labels,
+)
 
 
 S2_BANDS = [
@@ -264,19 +270,25 @@ def _convert_split(
         sample_dir = output_root / "samples" / sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
 
-        np.save(sample_dir / "sentinel2_l2a.npy", image)
-        np.save(sample_dir / "label.npy", label)
-        np.save(sample_dir / "valid_mask.npy", valid)
-        np.save(sample_dir / "timestamps.npy", timestamps)
+        image_paths = save_timesteps_as_geotiffs(
+            sample_dir,
+            "sentinel2_l2a",
+            image.transpose(1, 0, 2, 3),
+            S2_BANDS,
+        )
+        save_geotiff(sample_dir / "label.tif", label)
+        save_geotiff(sample_dir / "valid_mask.tif", valid.astype(np.uint8))
         split_labels.append(label)
 
         samples.append(
             {
                 "sample_id": sample_id,
-                "img_path": f"samples/{sample_id}/sentinel2_l2a.npy",
-                "seg_map_path": f"samples/{sample_id}/label.npy",
-                "valid_mask_path": f"samples/{sample_id}/valid_mask.npy",
-                "timestamps_path": f"samples/{sample_id}/timestamps.npy",
+                "img_paths": [
+                    f"samples/{sample_id}/{path}" for path in image_paths
+                ],
+                "seg_map_path": f"samples/{sample_id}/label.tif",
+                "valid_mask_path": f"samples/{sample_id}/valid_mask.tif",
+                "timestamps": timestamps.tolist(),
                 "olmoearth_modality": "sentinel2_l2a",
                 "olmoearth_num_timesteps": int(image.shape[1]),
                 "dataset_name": spec.dataset_name,
@@ -350,7 +362,7 @@ def main() -> None:
             "classes": spec.classes,
             "nodata_value": spec.nodata_value,
             "ignore_index": 255,
-            "image_layout": "CTHW",
+            "image_layout": "img_paths_tif_tchw",
             "modalities": ["sentinel2_l2a"],
             "bands": S2_BANDS,
             "rslearn_pad_size": 31,

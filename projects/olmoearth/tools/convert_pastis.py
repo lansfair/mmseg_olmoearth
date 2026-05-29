@@ -6,7 +6,13 @@ from typing import Any
 
 import numpy as np
 
-from common import label_stats, save_json, validate_labels
+from common import (
+    label_stats,
+    save_geotiff,
+    save_json,
+    save_timesteps_as_geotiffs,
+    validate_labels,
+)
 
 
 NUM_CLASSES = 19
@@ -86,18 +92,25 @@ def _convert_split(
         label[label == -1] = ignore_index
         validate_labels(label, NUM_CLASSES, ignore_index, sample_id)
 
-        np.save(sample_dir / "sentinel2_l2a.npy", s2)
-        np.save(sample_dir / "sentinel1.npy", s1)
-        np.save(sample_dir / "label.npy", label)
-        np.save(sample_dir / "timestamps.npy", _to_timestamps(months[idx]))
+        s2_paths = save_timesteps_as_geotiffs(
+            sample_dir,
+            "sentinel2_l2a",
+            s2,
+            S2_BANDS,
+        )
+        save_timesteps_as_geotiffs(sample_dir, "sentinel1", s1, S1_BANDS)
+        save_geotiff(sample_dir / "label.tif", label)
+        timestamps = _to_timestamps(months[idx])
         split_labels.append(label)
 
         samples.append(
             {
                 "sample_id": sample_id,
-                "img_path": f"samples/{sample_id}/sentinel2_l2a.npy",
-                "seg_map_path": f"samples/{sample_id}/label.npy",
-                "timestamps_path": f"samples/{sample_id}/timestamps.npy",
+                "img_paths": [
+                    f"samples/{sample_id}/{path}" for path in s2_paths
+                ],
+                "seg_map_path": f"samples/{sample_id}/label.tif",
+                "timestamps": timestamps.tolist(),
                 "olmoearth_modality": "sentinel2_l2a",
                 "olmoearth_num_timesteps": int(s2.shape[0]),
             }
@@ -147,7 +160,7 @@ def main() -> None:
             "dataset": "pastis",
             "num_classes": NUM_CLASSES,
             "ignore_index": args.ignore_index,
-            "image_layout": "TCHW",
+            "image_layout": "img_paths_tif_tchw",
             "modalities": ["sentinel2_l2a", "sentinel1"],
             "bands": {
                 "sentinel2_l2a": S2_BANDS,

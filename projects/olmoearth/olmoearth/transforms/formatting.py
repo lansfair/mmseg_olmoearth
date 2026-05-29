@@ -16,7 +16,7 @@ class PackOlmoEarthSegInputs(BaseTransform):
     def __init__(
         self,
         meta_keys=(
-            "img_path",
+            "img_paths",
             "seg_map_path",
             "valid_mask_path",
             "ori_shape",

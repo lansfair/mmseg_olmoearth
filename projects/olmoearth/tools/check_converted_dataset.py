@@ -40,7 +40,27 @@ def _resolve(data_root: Path, value: str) -> Path:
 def _load(path: Path) -> np.ndarray:
     if not path.exists():
         raise FileNotFoundError(path)
-    return np.load(path)
+    if path.suffix.lower() in {".tif", ".tiff"}:
+        try:
+            import rasterio
+        except ImportError as exc:
+            raise ImportError(
+                "Checking GeoTIFF manifests requires rasterio."
+            ) from exc
+        with rasterio.open(path) as src:
+            array = src.read()
+        if array.shape[0] == 1:
+            return array[0]
+        return array
+    raise ValueError(f"Only GeoTIFF files are supported by manifests: {path}")
+
+
+def _load_image(data_root: Path, sample: dict[str, Any]) -> np.ndarray:
+    if "img_paths" not in sample:
+        raise KeyError("Manifest sample must provide 'img_paths'.")
+    images = [_load(_resolve(data_root, path)) for path in sample["img_paths"]]
+    images = [image[None, ...] if image.ndim == 2 else image for image in images]
+    return np.stack(images, axis=0)
 
 
 def _validate_label_values(
@@ -72,7 +92,7 @@ def _check_sample(
     sample: dict[str, Any],
     metainfo: dict[str, Any],
 ) -> dict[str, Any]:
-    image = _load(_resolve(data_root, sample["img_path"]))
+    image = _load_image(data_root, sample)
     label = _load(_resolve(data_root, sample["seg_map_path"]))
 
     if image.ndim not in {3, 4}:
@@ -103,9 +123,9 @@ def _check_sample(
         summary["valid_pixels"] = int((valid > 0).sum())
         summary["total_pixels"] = int(valid.size)
 
-    timestamps_path = sample.get("timestamps_path")
-    if timestamps_path is not None:
-        timestamps = _load(_resolve(data_root, timestamps_path))
+    timestamps_value = sample.get("timestamps")
+    if timestamps_value is not None:
+        timestamps = np.asarray(timestamps_value)
         if timestamps.ndim != 2 or timestamps.shape[-1] != 3:
             raise ValueError(
                 f"timestamps must be (T, 3), got {timestamps.shape}"

@@ -5,7 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
-from common import label_stats, save_json, validate_labels
+from common import (
+    label_stats,
+    save_geotiff,
+    save_json,
+    save_timesteps_as_geotiffs,
+    validate_labels,
+)
 
 
 NUM_CLASSES = 15
@@ -70,16 +76,22 @@ def _convert_split(
         label = labels[idx].numpy().astype(np.int64)
         validate_labels(label, NUM_CLASSES, IGNORE_INDEX, sample_id)
         timestamps = np.asarray([[1, 6, 2020]], dtype=np.int64)
-        np.save(sample_dir / "sentinel2_l2a.npy", image)
-        np.save(sample_dir / "label.npy", label)
-        np.save(sample_dir / "timestamps.npy", timestamps)
+        image_paths = save_timesteps_as_geotiffs(
+            sample_dir,
+            "sentinel2_l2a",
+            image,
+            S2_BANDS,
+        )
+        save_geotiff(sample_dir / "label.tif", label)
         split_labels.append(label)
         samples.append(
             {
                 "sample_id": sample_id,
-                "img_path": f"samples/{sample_id}/sentinel2_l2a.npy",
-                "seg_map_path": f"samples/{sample_id}/label.npy",
-                "timestamps_path": f"samples/{sample_id}/timestamps.npy",
+                "img_paths": [
+                    f"samples/{sample_id}/{path}" for path in image_paths
+                ],
+                "seg_map_path": f"samples/{sample_id}/label.tif",
+                "timestamps": timestamps.tolist(),
                 "olmoearth_modality": "sentinel2_l2a",
                 "olmoearth_num_timesteps": 1,
             }
@@ -114,7 +126,7 @@ def main() -> None:
             "dataset": "mados",
             "num_classes": NUM_CLASSES,
             "ignore_index": IGNORE_INDEX,
-            "image_layout": "TCHW",
+            "image_layout": "img_paths_tif_tchw",
             "modalities": ["sentinel2_l2a"],
             "bands": S2_BANDS,
             "normalization": {

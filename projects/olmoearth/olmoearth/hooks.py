@@ -166,6 +166,16 @@ class OlmoEarthVisualizationHook(SegVisualizationHook):
         indices = [min(index, image.shape[-1] - 1) for index in indices]
         return _stretch_to_uint8(image[..., indices])
 
+    @staticmethod
+    def _sample_name(data_sample: SegDataSample, prefix: str) -> str:
+        if "sample_id" in data_sample.metainfo:
+            return f"{prefix}_{data_sample.metainfo['sample_id']}"
+        if "img_paths" in data_sample.metainfo:
+            return f"{prefix}_{osp.basename(data_sample.metainfo['img_paths'][0])}"
+        if "img_path" in data_sample.metainfo:
+            return f"{prefix}_{osp.basename(data_sample.metainfo['img_path'])}"
+        return prefix
+
     def after_val_iter(
         self,
         runner: Runner,
@@ -179,8 +189,7 @@ class OlmoEarthVisualizationHook(SegVisualizationHook):
         if total_curr_iter % self.interval != 0:
             return
         img = self._make_image(data_batch["inputs"], outputs[0])
-        img_path = outputs[0].img_path
-        window_name = f"val_{osp.basename(img_path)}"
+        window_name = self._sample_name(outputs[0], "val")
         self._visualizer.add_datasample(
             window_name,
             img,
@@ -207,8 +216,7 @@ class OlmoEarthVisualizationHook(SegVisualizationHook):
             else:
                 current_inputs = [inputs[output_idx]]
             img = self._make_image(current_inputs, data_sample)
-            img_path = data_sample.img_path
-            window_name = f"test_{osp.basename(img_path)}"
+            window_name = self._sample_name(data_sample, "test")
             self._visualizer.add_datasample(
                 window_name,
                 img,
