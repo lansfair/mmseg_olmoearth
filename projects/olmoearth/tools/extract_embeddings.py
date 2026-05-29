@@ -17,6 +17,29 @@ import torch.distributed as dist
 from common import save_geotiff, save_json
 
 
+SCRIPT_DEFAULTS = {
+    # Edit these defaults for your server, then run this file without the
+    # repeated long argument list. CLI arguments still override these values.
+    "config": (
+        "projects/olmoearth/configs/crop_type/"
+        "olmoearth-base_1xb8-50e_crop-type-s2-linear.py"
+    ),
+    "output_root": "work_dirs/olmoearth_embeddings/crop_type_s2",
+    "splits": ["train", "val", "test"],
+    "batch_size": 8,
+    "tile_size": 512,
+    "tile_overlap": 0.0,
+    "device": "auto",
+    "precision": "bf16",
+    "skip_existing": True,
+    "save_inputs": False,
+    "save_raw_inputs": True,
+    "quiet": False,
+    "pipeline_key": "test_pipeline",
+    "cfg_options": None,
+}
+
+
 @dataclass(frozen=True)
 class DistContext:
     is_distributed: bool
@@ -902,19 +925,31 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract dense OLMoEarth embeddings for offline MMSeg probes."
     )
-    parser.add_argument("config", help="Online OLMoEarth MMSeg config.")
-    parser.add_argument("--output-root", required=True)
+    parser.add_argument(
+        "config",
+        nargs="?",
+        default=SCRIPT_DEFAULTS["config"],
+        help="Online OLMoEarth MMSeg config.",
+    )
+    parser.add_argument(
+        "--output-root",
+        default=SCRIPT_DEFAULTS["output_root"],
+    )
     parser.add_argument(
         "--splits",
         nargs="+",
-        default=["train", "val", "test"],
+        default=SCRIPT_DEFAULTS["splits"],
         choices=["train", "val", "test"],
     )
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=SCRIPT_DEFAULTS["batch_size"],
+    )
     parser.add_argument(
         "--tile-size",
         type=int,
-        default=0,
+        default=SCRIPT_DEFAULTS["tile_size"],
         help=(
             "Enable sliding-window extraction for samples larger than this "
             "input size. 0 disables tiling."
@@ -923,7 +958,7 @@ def main() -> None:
     parser.add_argument(
         "--tile-overlap",
         type=float,
-        default=0.0,
+        default=SCRIPT_DEFAULTS["tile_overlap"],
         help=(
             "Sliding-window overlap. Values in [0, 1) are interpreted as a "
             "ratio of tile_size; values >= 1 are interpreted as pixels."
@@ -931,18 +966,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--device",
-        default="auto",
+        default=SCRIPT_DEFAULTS["device"],
         help="Use 'auto' for cuda:LOCAL_RANK under torchrun.",
     )
     parser.add_argument(
         "--precision",
         choices=["bf16", "fp32"],
-        default="bf16",
+        default=SCRIPT_DEFAULTS["precision"],
         help="CUDA inference precision. bf16 enables autocast and TF32.",
     )
     parser.add_argument(
         "--skip-existing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=SCRIPT_DEFAULTS["skip_existing"],
         help=(
             "Reuse existing outputs when present. With --save-inputs, "
             "input.tif must also exist."
@@ -950,7 +986,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--save-inputs",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=SCRIPT_DEFAULTS["save_inputs"],
         help=(
             "Also save the pipeline input tensor as input.tif for inspection. "
             "For crop-type this is the normalized 12-band OLMoEarth input, "
@@ -959,7 +996,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--save-raw-inputs",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=SCRIPT_DEFAULTS["save_raw_inputs"],
         help=(
             "Also save raw_input.tif for inspection when the loader can "
             "provide a pre-normalization source image. For crop-type this is "
@@ -969,12 +1007,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--quiet",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=SCRIPT_DEFAULTS["quiet"],
         help="Reduce per-batch logging.",
     )
     parser.add_argument(
         "--pipeline-key",
-        default="test_pipeline",
+        default=SCRIPT_DEFAULTS["pipeline_key"],
         help=(
             "Pipeline to use for extraction. Use 'none' to keep each "
             "dataloader's configured pipeline."
@@ -983,7 +1022,7 @@ def main() -> None:
     parser.add_argument(
         "--cfg-options",
         nargs="+",
-        default=None,
+        default=SCRIPT_DEFAULTS["cfg_options"],
         help="Override config options, e.g. key=value.",
     )
     args = parser.parse_args()
