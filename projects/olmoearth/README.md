@@ -217,7 +217,8 @@ python projects/olmoearth/tools/extract_embeddings.py \
   --batch-size 32 \
   --device auto \
   --precision bf16 \
-  --skip-existing
+  --skip-existing \
+  --save-inputs
 ```
 
 The extractor also supports single-node multi-GPU sharding with `torchrun`.
@@ -231,8 +232,14 @@ torchrun --nproc_per_node=4 projects/olmoearth/tools/extract_embeddings.py \
   --batch-size 32 \
   --device auto \
   --precision bf16 \
-  --skip-existing
+  --skip-existing \
+  --save-inputs
 ```
+
+`--save-inputs` is optional. It writes `input.tif` next to each
+`embedding.tif` and `label.tif` for inspection. This is the tensor after the
+MMSeg extraction pipeline, so for crop-type it is the normalized 12-band
+OLMoEarth input rather than the raw GEO-Bench source array.
 
 Then train only the patch-linear probe from the extracted embedding GeoTIFFs:
 

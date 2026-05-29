@@ -168,6 +168,7 @@ def _make_manifest_sample(
     label: np.ndarray,
     feature_shape: list[int],
     metainfo: dict[str, Any],
+    input_shape: list[int] | None = None,
 ) -> dict[str, Any]:
     embedding_rel = Path(split) / sample_id / "embedding.tif"
     label_rel = Path(split) / sample_id / "label.tif"
@@ -180,6 +181,10 @@ def _make_manifest_sample(
         "ori_shape": list(label.shape),
         "embedding_shape": feature_shape,
     }
+    if input_shape is not None:
+        input_rel = Path(split) / sample_id / "input.tif"
+        sample["input_path"] = str(input_rel).replace("\\", "/")
+        sample["input_shape"] = input_shape
     if "timestamps" in metainfo:
         sample["timestamps"] = _jsonable(metainfo["timestamps"])
     return sample
@@ -196,6 +201,7 @@ def _task_from_item(
     sample_id = _safe_sample_id(index, metainfo)
     sample_dir = output_root / split / sample_id
     embedding_path = sample_dir / "embedding.tif"
+    input_path = sample_dir / "input.tif"
     label_path = sample_dir / "label.tif"
     label = data_sample.gt_sem_seg.data.squeeze(0).cpu().numpy()
     return {
@@ -205,6 +211,7 @@ def _task_from_item(
         "sample_id": sample_id,
         "sample_dir": sample_dir,
         "embedding_path": embedding_path,
+        "input_path": input_path,
         "label_path": label_path,
         "label": label,
     }
@@ -214,6 +221,7 @@ def _save_task_output(
     task: dict[str, Any],
     feature: np.ndarray,
     embedding_names: list[str],
+    save_inputs: bool,
 ) -> dict[str, Any]:
     task["sample_dir"].mkdir(parents=True, exist_ok=True)
     save_geotiff(
@@ -221,6 +229,14 @@ def _save_task_output(
         feature.astype(np.float32, copy=False),
         descriptions=embedding_names,
     )
+    input_shape = None
+    if save_inputs:
+        input_arr = task["item"]["inputs"].detach().cpu().numpy()
+        save_geotiff(
+            task["input_path"],
+            input_arr.astype(np.float32, copy=False),
+        )
+        input_shape = list(input_arr.shape)
     save_geotiff(task["label_path"], task["label"])
     return _make_manifest_sample(
         index=task["index"],
@@ -229,6 +245,7 @@ def _save_task_output(
         label=task["label"],
         feature_shape=list(feature.shape),
         metainfo=task["metainfo"],
+        input_shape=input_shape,
     )
 
 
@@ -236,11 +253,17 @@ def _maybe_manifest_from_existing(
     task: dict[str, Any],
     split: str,
     skip_existing: bool,
+    save_inputs: bool,
 ) -> dict[str, Any] | None:
     if not skip_existing:
         return None
     if not task["embedding_path"].exists() or not task["label_path"].exists():
         return None
+    input_shape = None
+    if save_inputs:
+        if not task["input_path"].exists():
+            return None
+        input_shape = _embedding_shape(task["input_path"])
     return _make_manifest_sample(
         index=task["index"],
         split=split,
@@ -248,6 +271,7 @@ def _maybe_manifest_from_existing(
         label=task["label"],
         feature_shape=_embedding_shape(task["embedding_path"]),
         metainfo=task["metainfo"],
+        input_shape=input_shape,
     )
 
 
@@ -290,6 +314,7 @@ def _flush_shape_buckets(
     device: torch.device,
     precision: str,
     embedding_names: list[str] | None,
+    save_inputs: bool,
     verbose: bool,
     rank: int,
 ) -> list[str] | None:
@@ -320,7 +345,7 @@ def _flush_shape_buckets(
             ]
         for task, feature in zip(tasks, features):
             split_samples.append(
-                _save_task_output(task, feature, embedding_names)
+                _save_task_output(task, feature, embedding_names, save_inputs)
             )
         buckets[shape] = []
         _clear_cache(device)
@@ -337,6 +362,7 @@ def _extract_split(
     ctx: DistContext,
     precision: str,
     skip_existing: bool,
+    save_inputs: bool,
     verbose: bool,
 ) -> dict[str, Any]:
     dataset = _build_dataset(cfg, split, pipeline_key)
@@ -350,7 +376,12 @@ def _extract_split(
     with torch.inference_mode():
         for index in local_indices:
             task = _task_from_item(index, split, output_root, dataset[index])
-            existing = _maybe_manifest_from_existing(task, split, skip_existing)
+            existing = _maybe_manifest_from_existing(
+                task,
+                split,
+                skip_existing,
+                save_inputs,
+            )
             if existing is not None:
                 split_samples.append(existing)
                 skipped_count += 1
@@ -367,6 +398,7 @@ def _extract_split(
                     device=device,
                     precision=precision,
                     embedding_names=embedding_names,
+                    save_inputs=save_inputs,
                     verbose=verbose,
                     rank=ctx.rank,
                 )
@@ -379,6 +411,7 @@ def _extract_split(
             device=device,
             precision=precision,
             embedding_names=embedding_names,
+            save_inputs=save_inputs,
             verbose=verbose,
             rank=ctx.rank,
         )
@@ -405,6 +438,7 @@ def _extract_split(
         "assigned_samples": len(local_indices),
         "num_samples": len(split_samples),
         "skipped_existing": skipped_count,
+        "save_inputs": save_inputs,
         "manifest": str(manifest_path),
     }
 
@@ -468,7 +502,19 @@ def main() -> None:
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Reuse existing embedding.tif/label.tif pairs when present.",
+        help=(
+            "Reuse existing outputs when present. With --save-inputs, "
+            "input.tif must also exist."
+        ),
+    )
+    parser.add_argument(
+        "--save-inputs",
+        action="store_true",
+        help=(
+            "Also save the pipeline input tensor as input.tif for inspection. "
+            "For crop-type this is the normalized 12-band OLMoEarth input, "
+            "not the raw GEO-Bench source array."
+        ),
     )
     parser.add_argument(
         "--quiet",
@@ -524,6 +570,7 @@ def main() -> None:
                 ctx=ctx,
                 precision=args.precision,
                 skip_existing=args.skip_existing,
+                save_inputs=args.save_inputs,
                 verbose=not args.quiet,
             )
             for split in args.splits
@@ -537,6 +584,7 @@ def main() -> None:
                 "device": str(device),
                 "precision": args.precision,
                 "batch_size": args.batch_size,
+                "save_inputs": args.save_inputs,
                 "splits": local_summaries,
             },
         )
@@ -557,6 +605,7 @@ def main() -> None:
                     "device": str(device),
                     "precision": args.precision,
                     "batch_size": args.batch_size,
+                    "save_inputs": args.save_inputs,
                     "splits": summaries,
                 },
             )
