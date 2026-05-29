@@ -170,6 +170,11 @@ def _build_backbone(cfg, device: torch.device):
     return backbone
 
 
+def _get_feature_stride(cfg) -> int:
+    backbone_cfg = cfg.model.get("backbone", {})
+    return int(backbone_cfg.get("patch_size", 1))
+
+
 def _split_indices(length: int, ctx: DistContext) -> list[int]:
     if not ctx.is_distributed:
         return list(range(length))
@@ -252,6 +257,7 @@ def _save_task_output(
     embedding_names: list[str],
     save_inputs: bool,
     save_raw_inputs: bool,
+    tile_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task["sample_dir"].mkdir(parents=True, exist_ok=True)
     save_geotiff(
@@ -289,7 +295,7 @@ def _save_task_output(
         )
         raw_input_shape = list(raw_chw.shape)
     save_geotiff(task["label_path"], task["label"])
-    return _make_manifest_sample(
+    sample = _make_manifest_sample(
         index=task["index"],
         split=task["embedding_path"].parent.parent.name,
         sample_id=task["sample_id"],
@@ -299,6 +305,9 @@ def _save_task_output(
         input_shape=input_shape,
         raw_input_shape=raw_input_shape,
     )
+    if tile_info is not None:
+        sample["tiling"] = tile_info
+    return sample
 
 
 def _maybe_manifest_from_existing(
@@ -366,6 +375,301 @@ def _forward_tasks(
     return [feature.float().contiguous().cpu().numpy() for feature in features]
 
 
+def _forward_tasks_with_oom_retry(
+    backbone,
+    tasks: list[dict[str, Any]],
+    device: torch.device,
+    precision: str,
+    rank: int,
+) -> list[np.ndarray]:
+    try:
+        return _forward_tasks(backbone, tasks, device, precision)
+    except RuntimeError as exc:
+        if "out of memory" not in str(exc).lower() or len(tasks) == 1:
+            raise
+        print(
+            f"[rank {rank}] OOM for batch size {len(tasks)}; "
+            "retrying samples one by one."
+        )
+        _clear_cache(device)
+        features = []
+        for task in tasks:
+            features.extend(
+                _forward_tasks(backbone, [task], device, precision)
+            )
+        return features
+
+
+def _resolve_tile_overlap(tile_size: int, tile_overlap: float) -> int:
+    if tile_size <= 0:
+        raise ValueError(f"tile_size must be > 0, got {tile_size}")
+    if tile_overlap < 0:
+        raise ValueError(f"tile_overlap must be >= 0, got {tile_overlap}")
+    if tile_overlap < 1.0:
+        overlap = int(round(tile_size * tile_overlap))
+    else:
+        overlap = int(round(tile_overlap))
+    if overlap >= tile_size:
+        raise ValueError(
+            "tile overlap must be smaller than tile_size, "
+            f"got overlap={overlap}, tile_size={tile_size}"
+        )
+    return overlap
+
+
+def _build_tile_starts(length: int, tile_size: int, stride: int) -> list[int]:
+    if length <= tile_size:
+        return [0]
+    starts = list(range(0, length - tile_size + 1, stride))
+    last = length - tile_size
+    if starts[-1] != last:
+        starts.append(last)
+    return starts
+
+
+def _build_tile_specs(
+    height: int,
+    width: int,
+    tile_size: int,
+    tile_overlap: float,
+    feature_stride: int,
+) -> list[tuple[int, int, int, int]]:
+    overlap = _resolve_tile_overlap(tile_size, tile_overlap)
+    stride = tile_size - overlap
+    if tile_size % feature_stride != 0:
+        raise ValueError(
+            f"tile_size={tile_size} must be divisible by "
+            f"feature_stride={feature_stride}"
+        )
+    if stride % feature_stride != 0:
+        raise ValueError(
+            f"tile stride={stride} must be divisible by "
+            f"feature_stride={feature_stride}"
+        )
+    if height % feature_stride != 0 or width % feature_stride != 0:
+        raise ValueError(
+            "Sliding-window extraction requires input height/width divisible "
+            f"by feature_stride={feature_stride}; got {(height, width)}. "
+            "Pad in the MMSeg pipeline before extracting embeddings."
+        )
+
+    row_starts = _build_tile_starts(height, tile_size, stride)
+    col_starts = _build_tile_starts(width, tile_size, stride)
+    return [
+        (row, col, min(tile_size, height - row), min(tile_size, width - col))
+        for row in row_starts
+        for col in col_starts
+    ]
+
+
+def _blend_weights_1d(
+    length: int,
+    left_overlap: int,
+    right_overlap: int,
+    touches_left: bool,
+    touches_right: bool,
+) -> np.ndarray:
+    weights = np.ones((length,), dtype=np.float32)
+    if left_overlap > 0 and not touches_left:
+        left_overlap = min(left_overlap, length)
+        weights[:left_overlap] = np.minimum(
+            weights[:left_overlap],
+            np.linspace(
+                1.0 / (left_overlap + 1),
+                1.0,
+                left_overlap,
+                dtype=np.float32,
+            ),
+        )
+    if right_overlap > 0 and not touches_right:
+        right_overlap = min(right_overlap, length)
+        weights[-right_overlap:] = np.minimum(
+            weights[-right_overlap:],
+            np.linspace(
+                1.0,
+                1.0 / (right_overlap + 1),
+                right_overlap,
+                dtype=np.float32,
+            ),
+        )
+    return weights
+
+
+def _tile_blend_weight(
+    tile: tuple[int, int, int, int],
+    feature_shape: tuple[int, int],
+    full_shape: tuple[int, int],
+    overlaps: tuple[int, int, int, int],
+    feature_stride: int,
+) -> np.ndarray:
+    row, col, _, _ = tile
+    feat_h, feat_w = feature_shape
+    full_h, full_w = full_shape
+    top, bottom, left, right = overlaps
+    top_feat = top // feature_stride
+    bottom_feat = bottom // feature_stride
+    left_feat = left // feature_stride
+    right_feat = right // feature_stride
+    row0 = row // feature_stride
+    col0 = col // feature_stride
+    wy = _blend_weights_1d(
+        feat_h,
+        top_feat,
+        bottom_feat,
+        touches_left=row0 == 0,
+        touches_right=row0 + feat_h == full_h,
+    )
+    wx = _blend_weights_1d(
+        feat_w,
+        left_feat,
+        right_feat,
+        touches_left=col0 == 0,
+        touches_right=col0 + feat_w == full_w,
+    )
+    return np.outer(wy, wx).astype(np.float32, copy=False)
+
+
+def _build_tile_overlap_map(
+    tiles: list[tuple[int, int, int, int]],
+) -> dict[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    row_groups: dict[int, list[tuple[int, int, int, int]]] = {}
+    col_groups: dict[int, list[tuple[int, int, int, int]]] = {}
+    for tile in tiles:
+        row, col, _, _ = tile
+        row_groups.setdefault(row, []).append(tile)
+        col_groups.setdefault(col, []).append(tile)
+
+    left_right: dict[tuple[int, int, int, int], tuple[int, int]] = {}
+    for group in row_groups.values():
+        group.sort(key=lambda item: item[1])
+        for idx, tile in enumerate(group):
+            _, col, _, width = tile
+            left = 0
+            right = 0
+            if idx > 0:
+                prev = group[idx - 1]
+                left = max(0, prev[1] + prev[3] - col)
+            if idx + 1 < len(group):
+                next_tile = group[idx + 1]
+                right = max(0, col + width - next_tile[1])
+            left_right[tile] = (left, right)
+
+    top_bottom: dict[tuple[int, int, int, int], tuple[int, int]] = {}
+    for group in col_groups.values():
+        group.sort(key=lambda item: item[0])
+        for idx, tile in enumerate(group):
+            row, _, height, _ = tile
+            top = 0
+            bottom = 0
+            if idx > 0:
+                prev = group[idx - 1]
+                top = max(0, prev[0] + prev[2] - row)
+            if idx + 1 < len(group):
+                next_tile = group[idx + 1]
+                bottom = max(0, row + height - next_tile[0])
+            top_bottom[tile] = (top, bottom)
+
+    overlap_map = {}
+    for tile in tiles:
+        top, bottom = top_bottom.get(tile, (0, 0))
+        left, right = left_right.get(tile, (0, 0))
+        overlap_map[tile] = (top, bottom, left, right)
+    return overlap_map
+
+
+def _tile_task_from_parent(
+    task: dict[str, Any],
+    tile: tuple[int, int, int, int],
+) -> dict[str, Any]:
+    row, col, height, width = tile
+    inputs = task["item"]["inputs"][:, row : row + height, col : col + width]
+    return {
+        "item": {"inputs": inputs},
+        "metainfo": task["metainfo"],
+    }
+
+
+def _extract_tiled_feature(
+    backbone,
+    task: dict[str, Any],
+    batch_size: int,
+    device: torch.device,
+    precision: str,
+    rank: int,
+    tile_size: int,
+    tile_overlap: float,
+    feature_stride: int,
+    verbose: bool,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    _, height, width = task["item"]["inputs"].shape
+    tiles = _build_tile_specs(
+        height,
+        width,
+        tile_size,
+        tile_overlap,
+        feature_stride,
+    )
+    overlap = _resolve_tile_overlap(tile_size, tile_overlap)
+    tile_tasks = [_tile_task_from_parent(task, tile) for tile in tiles]
+    tile_features = []
+    for start in range(0, len(tile_tasks), batch_size):
+        batch = tile_tasks[start : start + batch_size]
+        tile_features.extend(
+            _forward_tasks_with_oom_retry(
+                backbone,
+                batch,
+                device,
+                precision,
+                rank,
+            )
+        )
+
+    full_h = height // feature_stride
+    full_w = width // feature_stride
+    channels = int(tile_features[0].shape[0])
+    canvas = np.zeros((channels, full_h, full_w), dtype=np.float32)
+    weight_sum = np.zeros((1, full_h, full_w), dtype=np.float32)
+    overlap_map = _build_tile_overlap_map(tiles)
+    for tile, feature in zip(tiles, tile_features):
+        row, col, _, _ = tile
+        row0 = row // feature_stride
+        col0 = col // feature_stride
+        feat_h, feat_w = feature.shape[-2:]
+        overlaps = overlap_map[tile]
+        for side, value in zip(("top", "bottom", "left", "right"), overlaps):
+            if value % feature_stride != 0:
+                raise ValueError(
+                    f"Tile {side} overlap={value} must be divisible by "
+                    f"feature_stride={feature_stride}"
+                )
+        weight = _tile_blend_weight(
+            tile,
+            (feat_h, feat_w),
+            (full_h, full_w),
+            overlaps,
+            feature_stride,
+        )[None, ...]
+        canvas[:, row0 : row0 + feat_h, col0 : col0 + feat_w] += (
+            feature * weight
+        )
+        weight_sum[:, row0 : row0 + feat_h, col0 : col0 + feat_w] += weight
+
+    canvas = canvas / np.clip(weight_sum, 1.0e-6, None)
+    if verbose:
+        print(
+            f"[rank {rank}] tiled {task['sample_id']}: "
+            f"{len(tiles)} tiles -> {tuple(canvas.shape)}"
+        )
+    return canvas, {
+        "tile_size": tile_size,
+        "tile_overlap": float(tile_overlap),
+        "tile_overlap_pixels": overlap,
+        "num_tiles": len(tiles),
+        "feature_stride": feature_stride,
+        "merge_mode": "weighted_overlap_blend",
+    }
+
+
 def _flush_shape_buckets(
     backbone,
     buckets: dict[tuple[int, ...], list[dict[str, Any]]],
@@ -383,21 +687,13 @@ def _flush_shape_buckets(
             continue
         if verbose:
             print(f"[rank {rank}] extracting shape={shape}, batch={len(tasks)}")
-        try:
-            features = _forward_tasks(backbone, tasks, device, precision)
-        except RuntimeError as exc:
-            if "out of memory" not in str(exc).lower() or len(tasks) == 1:
-                raise
-            print(
-                f"[rank {rank}] OOM for batch size {len(tasks)}; "
-                "retrying samples one by one."
-            )
-            _clear_cache(device)
-            features = []
-            for task in tasks:
-                features.extend(
-                    _forward_tasks(backbone, [task], device, precision)
-                )
+        features = _forward_tasks_with_oom_retry(
+            backbone,
+            tasks,
+            device,
+            precision,
+            rank,
+        )
 
         if embedding_names is None:
             embedding_names = [
@@ -411,6 +707,7 @@ def _flush_shape_buckets(
                     embedding_names,
                     save_inputs,
                     save_raw_inputs,
+                    tile_info=None,
                 )
             )
         buckets[shape] = []
@@ -430,15 +727,19 @@ def _extract_split(
     skip_existing: bool,
     save_inputs: bool,
     save_raw_inputs: bool,
+    tile_size: int,
+    tile_overlap: float,
     verbose: bool,
 ) -> dict[str, Any]:
     dataset = _build_dataset(cfg, split, pipeline_key, save_raw_inputs)
     backbone = _build_backbone(cfg, device)
+    feature_stride = _get_feature_stride(cfg)
     local_indices = _split_indices(len(dataset), ctx)
     split_samples: list[dict[str, Any]] = []
     buckets: dict[tuple[int, ...], list[dict[str, Any]]] = {}
     embedding_names: list[str] | None = None
     skipped_count = 0
+    tiled_count = 0
 
     with torch.inference_mode():
         for index in local_indices:
@@ -453,6 +754,54 @@ def _extract_split(
             if existing is not None:
                 split_samples.append(existing)
                 skipped_count += 1
+                continue
+
+            _, height, width = task["item"]["inputs"].shape
+            should_tile = tile_size > 0 and (
+                height > tile_size or width > tile_size
+            )
+            if should_tile:
+                embedding_names = _flush_shape_buckets(
+                    backbone=backbone,
+                    buckets=buckets,
+                    split_samples=split_samples,
+                    device=device,
+                    precision=precision,
+                    embedding_names=embedding_names,
+                    save_inputs=save_inputs,
+                    save_raw_inputs=save_raw_inputs,
+                    verbose=verbose,
+                    rank=ctx.rank,
+                )
+                feature, tile_info = _extract_tiled_feature(
+                    backbone=backbone,
+                    task=task,
+                    batch_size=batch_size,
+                    device=device,
+                    precision=precision,
+                    rank=ctx.rank,
+                    tile_size=tile_size,
+                    tile_overlap=tile_overlap,
+                    feature_stride=feature_stride,
+                    verbose=verbose,
+                )
+                if embedding_names is None:
+                    embedding_names = [
+                        f"embedding_{idx:04d}"
+                        for idx in range(feature.shape[0])
+                    ]
+                split_samples.append(
+                    _save_task_output(
+                        task,
+                        feature,
+                        embedding_names,
+                        save_inputs,
+                        save_raw_inputs,
+                        tile_info=tile_info,
+                    )
+                )
+                tiled_count += 1
+                _clear_cache(device)
                 continue
 
             shape = tuple(task["item"]["inputs"].shape)
@@ -508,8 +857,11 @@ def _extract_split(
         "assigned_samples": len(local_indices),
         "num_samples": len(split_samples),
         "skipped_existing": skipped_count,
+        "tiled_samples": tiled_count,
         "save_inputs": save_inputs,
         "save_raw_inputs": save_raw_inputs,
+        "tile_size": tile_size,
+        "tile_overlap": float(tile_overlap),
         "manifest": str(manifest_path),
     }
 
@@ -559,6 +911,24 @@ def main() -> None:
         choices=["train", "val", "test"],
     )
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument(
+        "--tile-size",
+        type=int,
+        default=0,
+        help=(
+            "Enable sliding-window extraction for samples larger than this "
+            "input size. 0 disables tiling."
+        ),
+    )
+    parser.add_argument(
+        "--tile-overlap",
+        type=float,
+        default=0.0,
+        help=(
+            "Sliding-window overlap. Values in [0, 1) are interpreted as a "
+            "ratio of tile_size; values >= 1 are interpreted as pixels."
+        ),
+    )
     parser.add_argument(
         "--device",
         default="auto",
@@ -653,6 +1023,8 @@ def main() -> None:
                 skip_existing=args.skip_existing,
                 save_inputs=args.save_inputs,
                 save_raw_inputs=args.save_raw_inputs,
+                tile_size=args.tile_size,
+                tile_overlap=args.tile_overlap,
                 verbose=not args.quiet,
             )
             for split in args.splits
@@ -666,6 +1038,8 @@ def main() -> None:
                 "device": str(device),
                 "precision": args.precision,
                 "batch_size": args.batch_size,
+                "tile_size": args.tile_size,
+                "tile_overlap": args.tile_overlap,
                 "save_inputs": args.save_inputs,
                 "save_raw_inputs": args.save_raw_inputs,
                 "splits": local_summaries,
@@ -688,6 +1062,8 @@ def main() -> None:
                     "device": str(device),
                     "precision": args.precision,
                     "batch_size": args.batch_size,
+                    "tile_size": args.tile_size,
+                    "tile_overlap": args.tile_overlap,
                     "save_inputs": args.save_inputs,
                     "save_raw_inputs": args.save_raw_inputs,
                     "splits": summaries,

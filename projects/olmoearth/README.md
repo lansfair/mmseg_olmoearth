@@ -218,6 +218,8 @@ python projects/olmoearth/tools/extract_embeddings.py \
   --device auto \
   --precision bf16 \
   --skip-existing \
+  --tile-size 512 \
+  --tile-overlap 0 \
   --save-raw-inputs
 ```
 
@@ -233,8 +235,18 @@ torchrun --nproc_per_node=4 projects/olmoearth/tools/extract_embeddings.py \
   --device auto \
   --precision bf16 \
   --skip-existing \
+  --tile-size 512 \
+  --tile-overlap 0 \
   --save-raw-inputs
 ```
+
+`--tile-size` is optional. When it is greater than zero, samples larger than
+that size are extracted with sliding-window tiles and merged back into one
+`embedding.tif` with weighted overlap blending. Tile size and tile stride
+(`tile_size - tile_overlap`) must be divisible by the OLMoEarth feature stride,
+usually the config's `patch_size`. Use `--tile-overlap 0` for the fastest
+extraction, or set a small overlap such as 64 pixels when boundary smoothness is
+more important than speed.
 
 `--save-raw-inputs` is optional. It writes `raw_input.tif` next to each
 `embedding.tif` and `label.tif` for inspection. For crop-type this is the
