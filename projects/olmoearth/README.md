@@ -215,7 +215,23 @@ python projects/olmoearth/tools/extract_embeddings.py \
   projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-linear.py \
   --output-root /mnt/ht2-nas2/EO_test/dataset/crop_type_olmoearth_embeddings \
   --batch-size 32 \
-  --device cuda
+  --device auto \
+  --precision bf16 \
+  --skip-existing
+```
+
+The extractor also supports single-node multi-GPU sharding with `torchrun`.
+Each rank writes its own temporary rank manifest, and rank 0 merges them into
+the final `train.json`, `val.json`, `test.json`, and `summary.json`:
+
+```bash
+torchrun --nproc_per_node=4 projects/olmoearth/tools/extract_embeddings.py \
+  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-linear.py \
+  --output-root /mnt/ht2-nas2/EO_test/dataset/crop_type_olmoearth_embeddings \
+  --batch-size 32 \
+  --device auto \
+  --precision bf16 \
+  --skip-existing
 ```
 
 Then train only the patch-linear probe from the extracted embedding GeoTIFFs:
