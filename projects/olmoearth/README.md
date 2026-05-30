@@ -231,6 +231,18 @@ Common extraction arguments can be edited directly in `SCRIPT_DEFAULTS` at the
 top of `projects/olmoearth/tools/extract_embeddings.py`. CLI arguments still
 override those defaults when you need a one-off change.
 
+This extraction step is intentionally not a normal MMSeg training loop. It
+reuses MMSeg config parsing, registries, datasets, and pipelines to get the
+same samples that online training would see, but it bypasses the MMSeg Runner
+and calls the OLMoEarth backbone in inference mode to materialize
+`embedding.tif`. The following offline probe training is normal MMSeg again:
+`OlmoEarthFeatureBackbone` reads the frozen embeddings and the decode head is
+trained by `tools/train.py`.
+
+Regenerate embeddings whenever the OLMoEarth checkpoint, `patch_size`, input
+pipeline, split, crop size, or normalization changes. Otherwise the offline
+probe may silently train on stale features.
+
 The extractor also supports single-node multi-GPU sharding with `torchrun`.
 Each rank writes its own temporary rank manifest, and rank 0 merges them into
 the final `train.json`, `val.json`, `test.json`, and `summary.json`:
