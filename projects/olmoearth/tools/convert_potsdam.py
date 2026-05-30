@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from common import label_stats, save_json, validate_labels
+from common import label_stats, progress_iter, save_json, validate_labels
 
 
 POTSDAM_CLASSES = (
@@ -116,7 +116,13 @@ def _convert_split(
     if not image_paths:
         raise FileNotFoundError(f"No images found under {img_dir}")
 
-    for idx, image_path in enumerate(image_paths):
+    for idx, image_path in enumerate(
+        progress_iter(
+            image_paths,
+            total=len(image_paths),
+            desc=f"{split}: converting Potsdam samples",
+        )
+    ):
         label_path = _match_label(ann_dir, image_path)
         image = _read_image(image_path)
         label = _read_label(label_path)

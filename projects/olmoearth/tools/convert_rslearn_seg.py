@@ -10,6 +10,7 @@ import numpy as np
 
 from common import (
     label_stats,
+    progress_iter,
     save_geotiff,
     save_json,
     save_timesteps_as_geotiffs,
@@ -241,7 +242,12 @@ def _convert_split(
     samples: list[dict[str, Any]] = []
     split_labels = []
 
-    for idx in range(len(rslearn_dataset)):
+    total = len(rslearn_dataset)
+    for idx in progress_iter(
+        range(total),
+        total=total,
+        desc=f"{manifest_name}: converting rslearn samples",
+    ):
         input_dict, target_dict, metadata = rslearn_dataset[idx]
         raster = input_dict["sentinel2_l2a"]
         image = _to_numpy(raster).astype(np.float32)

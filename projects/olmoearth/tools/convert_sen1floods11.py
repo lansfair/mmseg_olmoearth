@@ -7,6 +7,7 @@ import numpy as np
 
 from common import (
     label_stats,
+    progress_iter,
     save_geotiff,
     save_json,
     save_timesteps_as_geotiffs,
@@ -26,7 +27,12 @@ def _remove_nan(
     import torch
 
     keep_s1, keep_labels = [], []
-    for idx in range(s1.shape[0]):
+    total = int(s1.shape[0])
+    for idx in progress_iter(
+        range(total),
+        total=total,
+        desc=f"{manifest_name}: converting Sen1Floods11 samples",
+    ):
         if torch.any(torch.isnan(s1[idx])) or torch.any(torch.isinf(s1[idx])):
             continue
         keep_s1.append(s1[idx])

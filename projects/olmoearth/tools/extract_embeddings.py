@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from common import save_geotiff, save_json
+from common import progress_iter, save_geotiff, save_json
 
 
 SCRIPT_DEFAULTS = {
@@ -765,7 +765,12 @@ def _extract_split(
     tiled_count = 0
 
     with torch.inference_mode():
-        for index in local_indices:
+        for index in progress_iter(
+            local_indices,
+            total=len(local_indices),
+            desc=f"[rank {ctx.rank}] extracting {split}",
+            enabled=verbose,
+        ):
             task = _task_from_item(index, split, output_root, dataset[index])
             existing = _maybe_manifest_from_existing(
                 task,

@@ -8,6 +8,7 @@ import numpy as np
 
 from common import (
     label_stats,
+    progress_iter,
     save_geotiff,
     save_json,
     save_timesteps_as_geotiffs,
@@ -63,7 +64,12 @@ def _convert_split(
     months = torch.load(split_dir / "months.pt", map_location="cpu")
     samples = []
     split_labels = []
-    for idx in range(labels.shape[0]):
+    total = int(labels.shape[0])
+    for idx in progress_iter(
+        range(total),
+        total=total,
+        desc=f"{split}: converting PASTIS samples",
+    ):
         sample_id = f"{split}_{idx:06d}"
         sample_dir = output_root / "samples" / sample_id
         _mkdir(sample_dir)

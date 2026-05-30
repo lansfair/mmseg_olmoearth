@@ -7,6 +7,7 @@ import numpy as np
 
 from common import (
     label_stats,
+    progress_iter,
     save_geotiff,
     save_json,
     save_timesteps_as_geotiffs,
@@ -46,7 +47,12 @@ def _convert_split(
     labels = obj["labels"]
     samples = []
     split_labels = []
-    for idx in range(images.shape[0]):
+    total = int(images.shape[0])
+    for idx in progress_iter(
+        range(total),
+        total=total,
+        desc=f"{manifest_name}: converting MADOS samples",
+    ):
         sample_id = f"{manifest_name}_{idx:06d}"
         sample_dir = output_root / "samples" / sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
