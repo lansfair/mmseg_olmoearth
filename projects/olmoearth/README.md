@@ -5,6 +5,16 @@ semantic segmentation tasks. It is organized around explicit converted data
 manifests instead of wrapping `rslearn.train.dataset.ModelDataset` during
 training.
 
+## Which OpenMMLab Project
+
+Use the OLMoEarth project that matches the downstream task:
+
+| Task | Project | Typical data |
+| --- | --- | --- |
+| Semantic segmentation | MMSegmentation | masks, valid masks, GeoTIFF manifests |
+| Horizontal-box detection | MMDetection | rslearn detection manifest, VOC/XML DIOR |
+| Oriented-box detection | MMRotate | DOTA txt, DIOR-R oriented XML |
+
 ## Design
 
 - `OlmoEarthSegDataset` is a manifest-backed `BaseDataset`, so it keeps
@@ -38,6 +48,9 @@ training require `rasterio`. The runtime does not read paths from environment
 variables; set `data_root`, `model.backbone.model_config_path`, and
 `model.backbone.init_cfg.checkpoint` directly in config files or with
 `--cfg-options`.
+
+Conversion and embedding tools show progress. If `tqdm` is installed they use a
+progress bar; otherwise they fall back to periodic `current/total` prints.
 
 ## Checkpoint Layout
 
