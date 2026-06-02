@@ -65,6 +65,27 @@ CROP_TYPE_PALETTE = [
     [202, 178, 214],
 ]
 
+DFC2020_S2_CLASSES = (
+    "Forest",
+    "Shrubland",
+    "Grassland",
+    "Wetland",
+    "Cropland",
+    "Urban/Built-up",
+    "Barren",
+    "Water",
+)
+DFC2020_S2_PALETTE = [
+    [0, 100, 0],
+    [255, 187, 34],
+    [255, 255, 76],
+    [0, 150, 160],
+    [240, 150, 255],
+    [250, 0, 0],
+    [180, 180, 180],
+    [0, 100, 200],
+]
+
 
 PASTIS_CLASSES = (
     "background",

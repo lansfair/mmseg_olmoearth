@@ -47,8 +47,10 @@ test_pipeline = [
 
 train_dataloader = dict(
     batch_size=4,
-    num_workers=4,
+    num_workers=8,
     persistent_workers=True,
+    pin_memory=True,
+    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
         type="OlmoEarthSegDataset",
@@ -61,8 +63,10 @@ train_dataloader = dict(
 
 val_dataloader = dict(
     batch_size=4,
-    num_workers=4,
+    num_workers=8,
     persistent_workers=True,
+    pin_memory=True,
+    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
         type="OlmoEarthSegDataset",
@@ -75,8 +79,10 @@ val_dataloader = dict(
 
 test_dataloader = dict(
     batch_size=4,
-    num_workers=4,
+    num_workers=8,
     persistent_workers=True,
+    pin_memory=True,
+    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
         type="OlmoEarthSegDataset",
@@ -116,6 +122,7 @@ model = dict(
         num_timesteps=num_timesteps,
         out_channels=768,
         pooling_type="mean",
+        fast_pass=True,
     ),
     decode_head=dict(
         type="OlmoEarthPatchLinearHead",
@@ -138,7 +145,8 @@ model = dict(
 
 custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
 optim_wrapper = dict(
-    type="OptimWrapper",
+    type="AmpOptimWrapper",
+    loss_scale="dynamic",
     optimizer=dict(type="AdamW", lr=0.01),
 )
 param_scheduler = [

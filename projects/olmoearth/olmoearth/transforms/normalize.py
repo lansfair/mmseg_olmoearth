@@ -49,12 +49,17 @@ class OlmoEarthNormalize(BaseTransform):
             raise ValueError(
                 f"Expected {expected} channels, got {image.shape[-1]}"
             )
-        for band_idx, band_name in enumerate(self.band_names):
-            for t in range(self.num_timesteps):
-                channel_idx = band_idx * self.num_timesteps + t
-                image[..., channel_idx] = self._normalize_band(
-                    image[..., channel_idx], band_name
-                )
+        mins = []
+        ranges = []
+        for band_name in self.band_names:
+            stats = self.norm_config[band_name]
+            min_val = stats["mean"] - self.std_multiplier * stats["std"]
+            max_val = stats["mean"] + self.std_multiplier * stats["std"]
+            mins.extend([min_val] * self.num_timesteps)
+            ranges.extend([max_val - min_val] * self.num_timesteps)
+        image = (
+            image - np.asarray(mins, dtype=np.float32)
+        ) / np.asarray(ranges, dtype=np.float32)
         results["img"] = image
         results["olmoearth_modality"] = self.modality
         results["olmoearth_num_timesteps"] = self.num_timesteps
@@ -167,17 +172,21 @@ class OlmoEarthDatasetNormalize(BaseTransform):
             self.mins,
             self.maxs,
         )
-        for band_idx in range(num_bands):
-            for t in range(self.num_timesteps):
-                channel_idx = band_idx * self.num_timesteps + t
-                if self.method == "standardize":
-                    image[..., channel_idx] = (
-                        image[..., channel_idx] - mins_or_means[band_idx]
-                    ) / maxs_or_stds[band_idx]
-                else:
-                    image[..., channel_idx] = (
-                        image[..., channel_idx] - mins_or_means[band_idx]
-                    ) / (maxs_or_stds[band_idx] - mins_or_means[band_idx])
+        offsets = np.repeat(mins_or_means, self.num_timesteps).astype(
+            np.float32,
+            copy=False,
+        )
+        if self.method == "standardize":
+            scales = np.repeat(maxs_or_stds, self.num_timesteps).astype(
+                np.float32,
+                copy=False,
+            )
+        else:
+            scales = np.repeat(
+                maxs_or_stds - mins_or_means,
+                self.num_timesteps,
+            ).astype(np.float32, copy=False)
+        image = (image - offsets) / scales
         results["img"] = image
         results["olmoearth_modality"] = self.modality
         results["olmoearth_num_timesteps"] = self.num_timesteps

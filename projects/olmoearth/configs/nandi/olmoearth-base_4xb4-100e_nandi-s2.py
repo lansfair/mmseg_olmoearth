@@ -46,9 +46,11 @@ test_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=4,
-    num_workers=4,
+    batch_size=8,
+    num_workers=8,
     persistent_workers=True,
+    pin_memory=True,
+    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
         type="OlmoEarthSegDataset",
@@ -59,9 +61,11 @@ train_dataloader = dict(
     ),
 )
 val_dataloader = dict(
-    batch_size=4,
-    num_workers=4,
+    batch_size=8,
+    num_workers=8,
     persistent_workers=True,
+    pin_memory=True,
+    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
         type="OlmoEarthSegDataset",
@@ -101,6 +105,7 @@ model = dict(
         num_timesteps=num_timesteps,
         out_channels=768,
         pooling_type="mean",
+        fast_pass=True,
     ),
     decode_head=dict(
         type="OlmoEarthLinearHead",
@@ -125,7 +130,8 @@ model = dict(
 
 custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=20)]
 optim_wrapper = dict(
-    type="OptimWrapper",
+    type="AmpOptimWrapper",
+    loss_scale="dynamic",
     optimizer=dict(type="AdamW", lr=0.0001),
     paramwise_cfg=dict(custom_keys={"backbone": dict(lr_mult=0.1)}),
 )
@@ -141,7 +147,7 @@ param_scheduler = [
         by_epoch=True,
     )
 ]
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=100, val_interval=1)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=100, val_interval=5)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 
@@ -152,9 +158,10 @@ default_hooks = dict(
     checkpoint=dict(
         type="CheckpointHook",
         by_epoch=True,
-        interval=1,
+        interval=5,
         save_best="accuracy",
         rule="greater",
+        max_keep_ckpts=3,
         save_last=True,
     ),
     sampler_seed=dict(type="DistSamplerSeedHook"),

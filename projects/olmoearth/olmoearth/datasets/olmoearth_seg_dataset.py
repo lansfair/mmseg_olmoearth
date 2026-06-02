@@ -12,6 +12,8 @@ from ..utils import (
     AWF_PALETTE,
     CROP_TYPE_CLASSES,
     CROP_TYPE_PALETTE,
+    DFC2020_S2_CLASSES,
+    DFC2020_S2_PALETTE,
     MADOS_CLASSES,
     MADOS_PALETTE,
     NANDI_CLASSES,
@@ -38,6 +40,10 @@ DATASET_METAINFO = {
     "crop_type": {
         "classes": CROP_TYPE_CLASSES,
         "palette": CROP_TYPE_PALETTE,
+    },
+    "dfc2020_s2": {
+        "classes": DFC2020_S2_CLASSES,
+        "palette": DFC2020_S2_PALETTE,
     },
 }
 

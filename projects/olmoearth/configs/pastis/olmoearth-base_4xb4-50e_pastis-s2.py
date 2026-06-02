@@ -117,6 +117,7 @@ model = dict(
         num_timesteps=num_timesteps,
         out_channels=768,
         pooling_type="mean",
+        fast_pass=True,
     ),
     decode_head=dict(
         type="OlmoEarthPatchLinearHead",
