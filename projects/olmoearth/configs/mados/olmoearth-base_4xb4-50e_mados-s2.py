@@ -7,7 +7,7 @@ data_root = "data/olmoearth_mmseg/mados"
 olmoearth_model_dir = "checkpoints/olmoearth"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
-work_dir = "./work_dirs/olmoearth-base_4xb4-50e_mados-s2"
+work_dir = "./work_dirs/olmoearth-base_4xb16-50e_mados-s2"
 
 ignore_index = 255
 num_classes = 15
@@ -46,7 +46,7 @@ test_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -62,7 +62,7 @@ train_dataloader = dict(
 )
 
 val_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -78,7 +78,7 @@ val_dataloader = dict(
 )
 
 test_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -143,29 +143,34 @@ model = dict(
     test_cfg=dict(mode="whole"),
 )
 
-custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
+custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=10)]
 optim_wrapper = dict(
     type="AmpOptimWrapper",
     loss_scale="dynamic",
-    optimizer=dict(type="AdamW", lr=0.01),
+    optimizer=dict(type="AdamW", lr=1e-4, weight_decay=0.01),
 )
 param_scheduler = [
     dict(
-        type="LinearLR",
-        start_factor=1e-6,
+        type="MultiStepLR",
         begin=0,
-        end=5,
+        end=50,
+        milestones=[10],
+        gamma=0.1,
         by_epoch=True,
     ),
     dict(
-        type="CosineAnnealingLR",
-        eta_min=1e-5,
-        begin=5,
-        end=50,
+        type="ReduceOnPlateauParamScheduler",
+        param_name="lr",
+        monitor="mIoU",
+        rule="greater",
+        factor=0.2,
+        patience=2,
+        min_value=0.0,
+        cooldown=10,
         by_epoch=True,
-    )
+    ),
 ]
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=50, val_interval=5)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=50, val_interval=10)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 
@@ -176,8 +181,10 @@ default_hooks = dict(
     checkpoint=dict(
         type="CheckpointHook",
         by_epoch=True,
-        interval=5,
+        interval=10,
         save_best="mIoU",
+        rule="greater",
+        max_keep_ckpts=3,
     ),
     sampler_seed=dict(type="DistSamplerSeedHook"),
     visualization=dict(type="OlmoEarthVisualizationHook"),
@@ -193,3 +200,4 @@ default_scope = "mmseg"
 log_level = "INFO"
 load_from = None
 resume = False
+auto_scale_lr = dict(enable=False, base_batch_size=64)

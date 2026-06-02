@@ -3,40 +3,44 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-data_root = "data/olmoearth_mmseg/pastis"
+data_root = "data/Copernicus-Bench/dfc2020_s1s2"
 olmoearth_model_dir = "checkpoints/olmoearth"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
-work_dir = "./work_dirs/olmoearth-base_4xb16-50e_pastis-s2-amp-ft"
+work_dir = "./work_dirs/olmoearth-base_4xb16-50e_dfc2020-s2-copernicus-bench-ft"
 
 ignore_index = 255
-num_classes = 19
-num_timesteps = 12
-crop_size = (64, 64)
+num_classes = 8
+num_timesteps = 1
+crop_size = (256, 256)
 patch_size = 4
 hidden_dim = 768
+norm_cfg = dict(type="SyncBN", requires_grad=True)
 
 train_pipeline = [
+    dict(type="LoadOlmoEarthDFC2020S2Image"),
+    dict(type="LoadDFC2020Annotations"),
+    dict(type="Resize", scale=crop_size, keep_ratio=False),
     dict(
-        type="LoadOlmoEarthArrays",
-        ignore_index=ignore_index,
-        source_ignore_values=(-1,),
+        type="RandomRotate",
+        prob=0.5,
+        degree=90,
+        pad_val=0,
+        seg_pad_val=ignore_index,
     ),
+    dict(type="RandomFlip", prob=0.5, direction="horizontal"),
+    dict(type="RandomFlip", prob=0.5, direction="vertical"),
     dict(
         type="OlmoEarthNormalize",
         modality="sentinel2_l2a",
         num_timesteps=num_timesteps,
     ),
-    dict(type="OlmoEarthRandomFlip", horizontal=True, vertical=True),
     dict(type="PackOlmoEarthSegInputs"),
 ]
 
 test_pipeline = [
-    dict(
-        type="LoadOlmoEarthArrays",
-        ignore_index=ignore_index,
-        source_ignore_values=(-1,),
-    ),
+    dict(type="LoadOlmoEarthDFC2020S2Image"),
+    dict(type="LoadDFC2020Annotations"),
     dict(
         type="OlmoEarthNormalize",
         modality="sentinel2_l2a",
@@ -47,32 +51,32 @@ test_pipeline = [
 
 train_dataloader = dict(
     batch_size=16,
-    num_workers=2,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DFC2020S2Dataset",
         data_root=data_root,
-        ann_file="train.json",
-        dataset_name="pastis",
+        ann_file="dfc-train-new.csv",
+        data_prefix=dict(img_path="s2", seg_map_path="dfc"),
         pipeline=train_pipeline,
     ),
 )
 
 val_dataloader = dict(
     batch_size=16,
-    num_workers=2,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DFC2020S2Dataset",
         data_root=data_root,
-        ann_file="val.json",
-        dataset_name="pastis",
+        ann_file="dfc-val-new.csv",
+        data_prefix=dict(img_path="s2", seg_map_path="dfc"),
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -80,16 +84,16 @@ val_dataloader = dict(
 
 test_dataloader = dict(
     batch_size=16,
-    num_workers=2,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DFC2020S2Dataset",
         data_root=data_root,
-        ann_file="test.json",
-        dataset_name="pastis",
+        ann_file="dfc-test-new.csv",
+        data_prefix=dict(img_path="s2", seg_map_path="dfc"),
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -111,7 +115,7 @@ data_preprocessor = dict(
     bgr_to_rgb=False,
     pad_val=0,
     seg_pad_val=ignore_index,
-    size_divisor=patch_size,
+    size=crop_size,
     test_cfg=dict(size_divisor=patch_size),
 )
 
@@ -129,68 +133,79 @@ model = dict(
         pooling_type="mean",
         fast_pass=True,
     ),
+    neck=dict(
+        type="MultiLevelNeck",
+        in_channels=[hidden_dim],
+        out_channels=hidden_dim,
+        scales=[4, 2, 1, 0.5],
+        norm_cfg=norm_cfg,
+    ),
     decode_head=dict(
-        type="OlmoEarthPatchLinearHead",
-        in_channels=hidden_dim,
-        channels=hidden_dim,
-        in_index=0,
+        type="UPerHead",
+        in_channels=[hidden_dim, hidden_dim, hidden_dim, hidden_dim],
+        in_index=[0, 1, 2, 3],
+        pool_scales=(1, 2, 3, 6),
+        channels=512,
+        dropout_ratio=0.1,
         num_classes=num_classes,
-        patch_size=patch_size,
         ignore_index=ignore_index,
-        use_valid_mask=False,
-        valid_mask_loss=False,
-        align_corners=True,
+        norm_cfg=norm_cfg,
+        align_corners=False,
         loss_decode=dict(
             type="CrossEntropyLoss",
             use_sigmoid=False,
             loss_weight=1.0,
         ),
     ),
-    auxiliary_head=None,
+    auxiliary_head=dict(
+        type="FCNHead",
+        in_channels=hidden_dim,
+        in_index=2,
+        channels=256,
+        num_convs=1,
+        concat_input=False,
+        dropout_ratio=0.1,
+        num_classes=num_classes,
+        ignore_index=ignore_index,
+        norm_cfg=norm_cfg,
+        align_corners=False,
+        loss_decode=dict(
+            type="CrossEntropyLoss",
+            use_sigmoid=False,
+            loss_weight=0.4,
+        ),
+    ),
     train_cfg=dict(),
     test_cfg=dict(mode="whole"),
 )
 
-# Match olmoearth_pretrain finetune eval: freeze the backbone for the first
-# 20% of epochs, then unfreeze. LR scheduling is handled by MMEngine
-# param schedulers below.
-custom_hooks = [
-    dict(
-        type="FreezeBackboneUntilEpochHook",
-        unfreeze_epoch=10,
-    )
-]
+custom_hooks = []
 
 optim_wrapper = dict(
     type="AmpOptimWrapper",
     loss_scale="dynamic",
-    optimizer=dict(type="AdamW", lr=1e-4, weight_decay=0.01),
-    clip_grad=dict(max_norm=1.0, norm_type=2),
+    optimizer=dict(type="AdamW", lr=0.001, weight_decay=0.0001),
 )
 
 param_scheduler = [
     dict(
-        type="MultiStepLR",
+        type="LinearLR",
+        start_factor=1e-6,
         begin=0,
-        end=50,
-        milestones=[10],
-        gamma=0.1,
+        end=5,
         by_epoch=True,
     ),
     dict(
-        type="ReduceOnPlateauParamScheduler",
-        param_name="lr",
-        monitor="mIoU",
-        rule="greater",
-        factor=0.2,
-        patience=2,
-        min_value=0.0,
-        cooldown=10,
+        type="CosineAnnealingLR",
+        eta_min=1e-5,
+        begin=5,
+        end=50,
+        T_max=45,
         by_epoch=True,
     ),
 ]
 
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=50, val_interval=10)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=50, val_interval=5)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 
@@ -201,7 +216,7 @@ default_hooks = dict(
     checkpoint=dict(
         type="CheckpointHook",
         by_epoch=True,
-        interval=10,
+        interval=5,
         save_best="mIoU",
         rule="greater",
         max_keep_ckpts=3,
@@ -217,9 +232,7 @@ env_cfg = dict(
 )
 
 default_scope = "mmseg"
-log_processor = dict(by_epoch=True)
 log_level = "INFO"
 load_from = None
 resume = False
-tta_model = None
 auto_scale_lr = dict(enable=False, base_batch_size=64)

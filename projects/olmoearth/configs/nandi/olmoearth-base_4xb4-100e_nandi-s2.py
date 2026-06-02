@@ -132,20 +132,28 @@ custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=20)]
 optim_wrapper = dict(
     type="AmpOptimWrapper",
     loss_scale="dynamic",
-    optimizer=dict(type="AdamW", lr=0.0001),
-    paramwise_cfg=dict(custom_keys={"backbone": dict(lr_mult=0.1)}),
+    optimizer=dict(type="AdamW", lr=1e-4, weight_decay=0.01),
 )
 param_scheduler = [
     dict(
-        type="ReduceOnPlateauLR",
-        monitor="loss",
-        rule="less",
+        type="MultiStepLR",
+        begin=0,
+        end=100,
+        milestones=[20],
+        gamma=0.1,
+        by_epoch=True,
+    ),
+    dict(
+        type="ReduceOnPlateauParamScheduler",
+        param_name="lr",
+        monitor="accuracy",
+        rule="greater",
         factor=0.2,
         patience=2,
+        min_value=0.0,
         cooldown=10,
-        min_value=0,
         by_epoch=True,
-    )
+    ),
 ]
 train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=100, val_interval=5)
 val_cfg = dict(type="ValLoop")

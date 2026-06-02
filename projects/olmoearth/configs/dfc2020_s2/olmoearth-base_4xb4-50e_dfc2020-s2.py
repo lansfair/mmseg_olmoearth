@@ -7,7 +7,7 @@ data_root = "data/Copernicus-Bench/dfc2020_s1s2"
 olmoearth_model_dir = "checkpoints/olmoearth"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
-work_dir = "./work_dirs/olmoearth-base_4xb4-50e_dfc2020-s2"
+work_dir = "./work_dirs/olmoearth-base_4xb16-50e_dfc2020-s2-linear-probe"
 
 ignore_index = 255
 num_classes = 8
@@ -15,6 +15,7 @@ num_timesteps = 1
 crop_size = (256, 256)
 patch_size = 4
 hidden_dim = 768
+norm_cfg = dict(type="SyncBN", requires_grad=True)
 
 train_pipeline = [
     dict(type="LoadOlmoEarthDFC2020S2Image"),
@@ -49,7 +50,7 @@ test_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -65,7 +66,7 @@ train_dataloader = dict(
 )
 
 val_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -82,7 +83,7 @@ val_dataloader = dict(
 )
 
 test_dataloader = dict(
-    batch_size=4,
+    batch_size=16,
     num_workers=8,
     persistent_workers=True,
     pin_memory=True,
@@ -132,24 +133,48 @@ model = dict(
         pooling_type="mean",
         fast_pass=True,
     ),
+    neck=dict(
+        type="MultiLevelNeck",
+        in_channels=[hidden_dim],
+        out_channels=hidden_dim,
+        scales=[4, 2, 1, 0.5],
+        norm_cfg=norm_cfg,
+    ),
     decode_head=dict(
-        type="OlmoEarthPatchLinearHead",
-        in_channels=hidden_dim,
-        channels=hidden_dim,
-        in_index=0,
+        type="UPerHead",
+        in_channels=[hidden_dim, hidden_dim, hidden_dim, hidden_dim],
+        in_index=[0, 1, 2, 3],
+        pool_scales=(1, 2, 3, 6),
+        channels=512,
+        dropout_ratio=0.1,
         num_classes=num_classes,
-        patch_size=patch_size,
         ignore_index=ignore_index,
-        use_valid_mask=False,
-        valid_mask_loss=False,
-        align_corners=True,
+        norm_cfg=norm_cfg,
+        align_corners=False,
         loss_decode=dict(
             type="CrossEntropyLoss",
             use_sigmoid=False,
             loss_weight=1.0,
         ),
     ),
-    auxiliary_head=None,
+    auxiliary_head=dict(
+        type="FCNHead",
+        in_channels=hidden_dim,
+        in_index=2,
+        channels=256,
+        num_convs=1,
+        concat_input=False,
+        dropout_ratio=0.1,
+        num_classes=num_classes,
+        ignore_index=ignore_index,
+        norm_cfg=norm_cfg,
+        align_corners=False,
+        loss_decode=dict(
+            type="CrossEntropyLoss",
+            use_sigmoid=False,
+            loss_weight=0.4,
+        ),
+    ),
     train_cfg=dict(),
     test_cfg=dict(mode="whole"),
 )
@@ -159,7 +184,7 @@ custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
 optim_wrapper = dict(
     type="AmpOptimWrapper",
     loss_scale="dynamic",
-    optimizer=dict(type="AdamW", lr=0.01, weight_decay=0.01),
+    optimizer=dict(type="AdamW", lr=0.001, weight_decay=0.0001),
 )
 
 param_scheduler = [
@@ -210,4 +235,4 @@ default_scope = "mmseg"
 log_level = "INFO"
 load_from = None
 resume = False
-auto_scale_lr = dict(enable=False, base_batch_size=16)
+auto_scale_lr = dict(enable=False, base_batch_size=64)
