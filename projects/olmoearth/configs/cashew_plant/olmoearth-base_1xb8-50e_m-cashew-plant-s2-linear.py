@@ -3,21 +3,64 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-embedding_root = "work_dirs/olmoearth_embeddings/pastis_s2"
-work_dir = "./work_dirs/olmoearth-base_4xb8-50e_pastis-s2-offline-linear"
+geobench_root = "/mnt/ht2-nas2/EO_test/dataset/geo-bench-1.0"
+olmoearth_model_dir = "/mnt/ht2-nas2/EO_test/model/OlmoEarth-v1-Base"
+model_config_path = f"{olmoearth_model_dir}/config.json"
+weights_path = f"{olmoearth_model_dir}/weights.pth"
+work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-linear"
 
 ignore_index = 255
-num_classes = 19
+num_classes = 7
+num_timesteps = 1
+crop_size = (256, 256)
 patch_size = 4
 hidden_dim = 768
-embedding_size = (16, 16)
+
+s2_band_names = [
+    "02",
+    "03",
+    "04",
+    "08",
+    "05",
+    "06",
+    "07",
+    "08A",
+    "11",
+    "12",
+    "01",
+    "09",
+]
+
+geobench_s2_imputes = [("11 - SWIR", "10 - SWIR - Cirrus")]
 
 train_pipeline = [
-    dict(type="LoadOlmoEarthEmbedding", ignore_index=ignore_index),
+    dict(
+        type="LoadGeoBenchS2OfficialNorm",
+        num_classes=num_classes,
+        ignore_index=ignore_index,
+        invalid_label_to_ignore=True,
+        imputes=geobench_s2_imputes,
+        default_timestamp=(15, 4, 2024),
+    ),
+    dict(
+        type="RandomCrop",
+        crop_size=crop_size,
+        cat_max_ratio=1.0,
+    ),
     dict(type="PackOlmoEarthSegInputs"),
 ]
 
-test_pipeline = train_pipeline
+test_pipeline = [
+    dict(
+        type="LoadGeoBenchS2OfficialNorm",
+        num_classes=num_classes,
+        ignore_index=ignore_index,
+        invalid_label_to_ignore=True,
+        imputes=geobench_s2_imputes,
+        default_timestamp=(15, 4, 2024),
+    ),
+    dict(type="PackOlmoEarthSegInputs"),
+]
 
 train_dataloader = dict(
     batch_size=8,
@@ -25,10 +68,16 @@ train_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type="OlmoEarthSegDataset",
-        data_root=embedding_root,
-        ann_file="train.json",
-        dataset_name="pastis",
+        type="GeoBenchS2SegDataset",
+        task_name="m-cashew-plant",
+        benchmark_name="segmentation_v1.0",
+        split="train",
+        partition_name="default",
+        band_names=s2_band_names,
+        geobench_format="hdf5",
+        geobench_root=geobench_root,
+        dataset_name="cashew_plant",
+        num_classes=num_classes,
         pipeline=train_pipeline,
     ),
 )
@@ -39,10 +88,16 @@ val_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
-        data_root=embedding_root,
-        ann_file="val.json",
-        dataset_name="pastis",
+        type="GeoBenchS2SegDataset",
+        task_name="m-cashew-plant",
+        benchmark_name="segmentation_v1.0",
+        split="valid",
+        partition_name="default",
+        band_names=s2_band_names,
+        geobench_format="hdf5",
+        geobench_root=geobench_root,
+        dataset_name="cashew_plant",
+        num_classes=num_classes,
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -54,10 +109,16 @@ test_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
-        data_root=embedding_root,
-        ann_file="test.json",
-        dataset_name="pastis",
+        type="GeoBenchS2SegDataset",
+        task_name="m-cashew-plant",
+        benchmark_name="segmentation_v1.0",
+        split="test",
+        partition_name="default",
+        band_names=s2_band_names,
+        geobench_format="hdf5",
+        geobench_root=geobench_root,
+        dataset_name="cashew_plant",
+        num_classes=num_classes,
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -79,15 +140,22 @@ data_preprocessor = dict(
     bgr_to_rgb=False,
     pad_val=0,
     seg_pad_val=ignore_index,
-    size=embedding_size,
+    size=crop_size,
+    test_cfg=dict(size_divisor=patch_size),
 )
 
 model = dict(
     type="OlmoEarthEncoderDecoder",
     data_preprocessor=data_preprocessor,
     backbone=dict(
-        type="OlmoEarthFeatureBackbone",
+        type="OlmoEarthBackbone",
+        model_config_path=model_config_path,
+        init_cfg=dict(type="Pretrained", checkpoint=weights_path),
+        modality="sentinel2_l2a",
+        patch_size=patch_size,
+        num_timesteps=num_timesteps,
         out_channels=hidden_dim,
+        pooling_type="mean",
     ),
     decode_head=dict(
         type="OlmoEarthPatchLinearHead",
@@ -110,6 +178,8 @@ model = dict(
     train_cfg=dict(),
     test_cfg=dict(mode="whole"),
 )
+
+custom_hooks = [dict(type="FreezeBackboneUntilEpochHook", unfreeze_epoch=None)]
 
 optim_wrapper = dict(
     type="OptimWrapper",
@@ -161,9 +231,7 @@ env_cfg = dict(
 )
 
 default_scope = "mmseg"
-log_processor = dict(by_epoch=True)
 log_level = "INFO"
 load_from = None
 resume = False
-tta_model = None
 auto_scale_lr = dict(enable=False, base_batch_size=8)

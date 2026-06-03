@@ -203,22 +203,18 @@ RGB is supported only as an explicit adapter through `RGBToOlmoEarthS2`. It maps
 R/G/B to Sentinel-2 B04/B03/B02 and fills missing Sentinel-2 bands with
 normalized zero. This is not a paper-reproduction path.
 
-## GEO-Bench Crop-Type
+## GEO-Bench S2 Segmentation
 
-The `m-SA-crop-type` config uses GEO-Bench's Sentinel-2 L2A segmentation task
-as a single-timestep OLMoEarth input. The loader reads the official 13
-GEO-Bench Sentinel-2 bands, imputes B10 from B11, applies the OLMoEarth
+The GEO-Bench Sentinel-2 segmentation configs cover the segmentation tasks used
+by OLMoEarth pretrain's GeoBench evaluator: `m-SA-crop-type` and
+`m-cashew-plant`. The loader reads the official 13 GEO-Bench Sentinel-2 bands,
+applies the task's imputation rules, applies the OLMoEarth
 `NORM_NO_CLIP_2_STD` normalization from task band statistics, then selects the
-12-band OLMoEarth Sentinel-2 L2A order. The encoder is frozen and trained with
-the patch-linear probe used by OLMoEarth downstream segmentation evals.
+12-band OLMoEarth Sentinel-2 L2A order.
 
-```bash
-python tools/train.py \
-  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-linear.py
-```
-
-Set `geobench_root` and `olmoearth_model_dir` at the top of the config before
-running.
+Set `geobench_root` and `olmoearth_model_dir` at the top of each config before
+running. The recommended aligned routes are offline embedding linear probing
+and full finetuning.
 
 For the faster paper-style offline linear probe, first extract dense
 OLMoEarth embeddings once:
@@ -270,11 +266,29 @@ Then train only the patch-linear probe from the extracted embedding GeoTIFFs:
 ```bash
 python tools/train.py \
   projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-offline-linear.py
+
+python tools/train.py \
+  projects/olmoearth/configs/cashew_plant/olmoearth-base_1xb8-50e_m-cashew-plant-s2-offline-linear.py
 ```
 
 This is much closer to the original OLMoEarth evaluator: encoder forward is
 paid once during extraction, and the 50-epoch probe training loop no longer
 recomputes the OLMoEarth backbone.
+
+The `*-s2-linear.py` configs are kept as convenient extraction-source configs
+for `extract_embeddings.py`; they are not the recommended training route.
+
+For full finetuning, use the configs aligned to `olmoearth_pretrain`'s finetune
+evaluator. They keep the backbone frozen for the first 20% of training, then
+unfreeze it:
+
+```bash
+python tools/train.py \
+  projects/olmoearth/configs/crop_type/olmoearth-base_1xb8-50e_crop-type-s2-ft.py
+
+python tools/train.py \
+  projects/olmoearth/configs/cashew_plant/olmoearth-base_1xb4-50e_m-cashew-plant-s2-ft.py
+```
 
 ## Potsdam
 

@@ -6,7 +6,12 @@ from typing import Any
 from mmengine.dataset import BaseDataset
 from mmseg.registry import DATASETS
 
-from ..utils import CROP_TYPE_CLASSES, CROP_TYPE_PALETTE
+from ..utils import (
+    CASHEW_PLANT_CLASSES,
+    CASHEW_PLANT_PALETTE,
+    CROP_TYPE_CLASSES,
+    CROP_TYPE_PALETTE,
+)
 
 
 GEOBENCH_S2_BANDS = (
@@ -24,6 +29,19 @@ GEOBENCH_S2_BANDS = (
     "09",
 )
 
+GEOBENCH_METAINFO = {
+    "m-SA-crop-type": dict(
+        classes=CROP_TYPE_CLASSES,
+        palette=CROP_TYPE_PALETTE,
+        dataset_name="crop_type",
+    ),
+    "m-cashew-plant": dict(
+        classes=CASHEW_PLANT_CLASSES,
+        palette=CASHEW_PLANT_PALETTE,
+        dataset_name="cashew_plant",
+    ),
+}
+
 
 def _normalize_task_name(name: str) -> str:
     return str(name).lower().replace("_", "-").replace(" ", "")
@@ -33,6 +51,27 @@ def _set_geobench_root(geobench_root: str | None) -> None:
     if geobench_root is not None:
         # GEO-Bench discovers its local cache through this variable.
         os.environ["GEO_BENCH_DIR"] = geobench_root
+
+
+def _get_task_defaults(task_name: str) -> dict[str, Any]:
+    normalized = _normalize_task_name(task_name)
+    for name, defaults in GEOBENCH_METAINFO.items():
+        if _normalize_task_name(name) == normalized:
+            return defaults.copy()
+    return {}
+
+
+def _make_generic_palette(num_classes: int) -> list[list[int]]:
+    palette = []
+    for idx in range(num_classes):
+        palette.append(
+            [
+                (idx * 37) % 256,
+                (idx * 67) % 256,
+                (idx * 97) % 256,
+            ]
+        )
+    return palette
 
 
 def get_geobench_task(
@@ -71,7 +110,7 @@ class GeoBenchS2SegDataset(BaseDataset):
     cache the underlying GEO-Bench dataset object locally.
     """
 
-    METAINFO = dict(classes=CROP_TYPE_CLASSES, palette=CROP_TYPE_PALETTE)
+    METAINFO = {}
 
     def __init__(
         self,
@@ -82,6 +121,10 @@ class GeoBenchS2SegDataset(BaseDataset):
         band_names: tuple[str, ...] = GEOBENCH_S2_BANDS,
         geobench_format: str = "hdf5",
         geobench_root: str | None = None,
+        dataset_name: str | None = None,
+        num_classes: int | None = None,
+        classes: tuple[str, ...] | list[str] | None = None,
+        palette: list[list[int]] | tuple[tuple[int, int, int], ...] | None = None,
         pipeline: list[dict[str, Any]] | None = None,
         metainfo: dict[str, Any] | None = None,
         test_mode: bool = False,
@@ -95,6 +138,26 @@ class GeoBenchS2SegDataset(BaseDataset):
         self.band_names = tuple(band_names)
         self.geobench_format = geobench_format
         self.geobench_root = geobench_root
+        task_defaults = _get_task_defaults(task_name)
+        self.dataset_name = (
+            dataset_name
+            or task_defaults.get("dataset_name")
+            or _normalize_task_name(task_name)
+        )
+
+        if metainfo is None:
+            resolved_classes = classes or task_defaults.get("classes")
+            resolved_palette = palette or task_defaults.get("palette")
+            if resolved_classes is None and num_classes is not None:
+                resolved_classes = tuple(f"class_{idx}" for idx in range(num_classes))
+            if resolved_palette is None and resolved_classes is not None:
+                resolved_palette = _make_generic_palette(len(resolved_classes))
+            metainfo = {}
+            if resolved_classes is not None:
+                metainfo["classes"] = tuple(resolved_classes)
+            if resolved_palette is not None:
+                metainfo["palette"] = [list(color) for color in resolved_palette]
+
         super().__init__(
             ann_file="",
             metainfo=metainfo,
@@ -129,7 +192,7 @@ class GeoBenchS2SegDataset(BaseDataset):
                 band_names=list(self.band_names),
                 geobench_format=self.geobench_format,
                 geobench_root=self.geobench_root,
-                dataset_name="crop_type",
+                dataset_name=self.dataset_name,
                 olmoearth_modality="sentinel2_l2a",
                 olmoearth_num_timesteps=1,
                 olmoearth_band_names=list(self.band_names),

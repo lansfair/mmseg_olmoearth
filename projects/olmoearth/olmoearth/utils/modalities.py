@@ -65,6 +65,17 @@ CROP_TYPE_PALETTE = [
     [202, 178, 214],
 ]
 
+CASHEW_PLANT_CLASSES = tuple(f"class_{idx}" for idx in range(7))
+CASHEW_PLANT_PALETTE = [
+    [0, 0, 0],
+    [37, 67, 97],
+    [74, 134, 194],
+    [111, 201, 35],
+    [148, 12, 132],
+    [185, 79, 229],
+    [222, 146, 70],
+]
+
 DFC2020_S2_CLASSES = (
     "Forest",
     "Shrubland",

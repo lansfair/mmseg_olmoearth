@@ -3,13 +3,14 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-embedding_root = "work_dirs/olmoearth_embeddings/sen1floods11_s1"
-work_dir = "./work_dirs/olmoearth-base_4xb128-50e_sen1floods11-s1-offline-linear"
+embedding_root = "/mnt/ht2-nas2/EO_test/dataset/cashew_plant_olmoearth_embeddings"
+work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-offline-linear"
 
 ignore_index = 255
-num_classes = 2
+num_classes = 7
 patch_size = 4
 hidden_dim = 768
+embedding_size = (64, 64)
 
 train_pipeline = [
     dict(type="LoadOlmoEarthEmbedding", ignore_index=ignore_index),
@@ -19,38 +20,48 @@ train_pipeline = [
 test_pipeline = train_pipeline
 
 train_dataloader = dict(
-    batch_size=128,
-    num_workers=4,
+    batch_size=8,
+    num_workers=2,
     persistent_workers=True,
-    pin_memory=True,
-    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
         type="OlmoEarthSegDataset",
         data_root=embedding_root,
         ann_file="train.json",
-        dataset_name="sen1floods11",
+        dataset_name="cashew_plant",
         pipeline=train_pipeline,
     ),
 )
 
 val_dataloader = dict(
-    batch_size=128,
-    num_workers=4,
+    batch_size=8,
+    num_workers=2,
     persistent_workers=True,
-    pin_memory=True,
-    prefetch_factor=4,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
         type="OlmoEarthSegDataset",
         data_root=embedding_root,
         ann_file="val.json",
-        dataset_name="sen1floods11",
+        dataset_name="cashew_plant",
         pipeline=test_pipeline,
         test_mode=True,
     ),
 )
-test_dataloader = val_dataloader
+
+test_dataloader = dict(
+    batch_size=8,
+    num_workers=2,
+    persistent_workers=True,
+    sampler=dict(type="DefaultSampler", shuffle=False),
+    dataset=dict(
+        type="OlmoEarthSegDataset",
+        data_root=embedding_root,
+        ann_file="test.json",
+        dataset_name="cashew_plant",
+        pipeline=test_pipeline,
+        test_mode=True,
+    ),
+)
 
 val_evaluator = dict(
     type="OlmoEarthIoUMetric",
@@ -61,17 +72,19 @@ val_evaluator = dict(
 )
 test_evaluator = val_evaluator
 
+data_preprocessor = dict(
+    type="OlmoEarthSegDataPreProcessor",
+    mean=None,
+    std=None,
+    bgr_to_rgb=False,
+    pad_val=0,
+    seg_pad_val=ignore_index,
+    size=embedding_size,
+)
+
 model = dict(
     type="OlmoEarthEncoderDecoder",
-    data_preprocessor=dict(
-        type="OlmoEarthSegDataPreProcessor",
-        mean=None,
-        std=None,
-        bgr_to_rgb=False,
-        pad_val=0,
-        seg_pad_val=ignore_index,
-        size_divisor=1,
-    ),
+    data_preprocessor=data_preprocessor,
     backbone=dict(
         type="OlmoEarthFeatureBackbone",
         out_channels=hidden_dim,
@@ -148,9 +161,9 @@ env_cfg = dict(
 )
 
 default_scope = "mmseg"
+
 log_processor = dict(by_epoch=True)
 log_level = "INFO"
 load_from = None
 resume = False
 tta_model = None
-auto_scale_lr = dict(enable=False, base_batch_size=128)

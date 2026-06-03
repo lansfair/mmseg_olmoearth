@@ -4,7 +4,7 @@ custom_imports = dict(
 )
 
 embedding_root = "work_dirs/olmoearth_embeddings/mados_s2"
-work_dir = "./work_dirs/olmoearth-base_4xb16-50e_mados-s2-offline-linear"
+work_dir = "./work_dirs/olmoearth-base_4xb128-50e_mados-s2-offline-linear"
 
 ignore_index = 255
 num_classes = 15
@@ -19,8 +19,8 @@ train_pipeline = [
 test_pipeline = train_pipeline
 
 train_dataloader = dict(
-    batch_size=16,
-    num_workers=4,
+    batch_size=128,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
@@ -35,8 +35,8 @@ train_dataloader = dict(
 )
 
 val_dataloader = dict(
-    batch_size=16,
-    num_workers=4,
+    batch_size=128,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
@@ -52,8 +52,8 @@ val_dataloader = dict(
 )
 
 test_dataloader = dict(
-    batch_size=16,
-    num_workers=4,
+    batch_size=128,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     prefetch_factor=4,
@@ -169,4 +169,4 @@ log_level = "INFO"
 load_from = None
 resume = False
 tta_model = None
-auto_scale_lr = dict(enable=False, base_batch_size=16)
+auto_scale_lr = dict(enable=False, base_batch_size=128)

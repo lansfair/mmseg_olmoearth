@@ -41,7 +41,7 @@ OFFICIAL_OLMOEARTH_S2_L2A_BAND_NAMES = [
     "09 - Water vapour",
 ]
 
-M_SA_CROP_TYPE_IMPUTES = [("11 - SWIR", "10 - SWIR - Cirrus")]
+DEFAULT_S2_IMPUTES = [("11 - SWIR", "10 - SWIR - Cirrus")]
 
 
 def _stats_to_float(stats: Any, key: str) -> float:
@@ -89,26 +89,31 @@ def _norm_no_clip_2_std(
     return (image.astype(np.float32) - lower) / (upper - lower)
 
 
-def _collect_s2_bands(sample, all_bands: list[str]) -> np.ndarray:
+def _collect_s2_bands(
+    sample,
+    all_bands: list[str],
+    imputes: list[tuple[str, str]],
+) -> np.ndarray:
     band_map = {band.band_info.name: band.data for band in sample.bands}
     image_list = []
     for band_name in all_bands:
         if band_name in band_map:
             image_list.append(band_map[band_name])
             continue
-        if band_name == "10 - SWIR - Cirrus":
-            source = "11 - SWIR"
-            if source not in band_map:
-                raise KeyError(
-                    f"Cannot impute {band_name}: source band {source} "
-                    "not found."
-                )
-            image_list.append(band_map[source])
-            continue
-        raise KeyError(
-            f"Cannot find required band {band_name}. "
-            f"Available bands: {list(band_map.keys())}"
-        )
+        for source, target in imputes:
+            if target == band_name:
+                if source not in band_map:
+                    raise KeyError(
+                        f"Cannot impute {band_name}: source band {source} "
+                        "not found."
+                    )
+                image_list.append(band_map[source])
+                break
+        else:
+            raise KeyError(
+                f"Cannot find required band {band_name}. "
+                f"Available bands: {list(band_map.keys())}"
+            )
     return np.stack(image_list, axis=-1)
 
 
@@ -127,9 +132,11 @@ def _resize_2d_if_needed(
 class LoadGeoBenchS2OfficialNorm(BaseTransform):
     """Load GEO-Bench S2 samples with OLMoEarth official normalization.
 
-    For m-SA-crop-type this reads the official 13-band Sentinel-2 sample,
-    imputes B10 from B11, applies ``NORM_NO_CLIP_2_STD`` using task statistics,
-    and selects the OLMoEarth Sentinel-2 L2A 12-band order.
+    By default this follows the m-SA-crop-type OLMoEarth eval path: load the
+    official 13 Sentinel-2 bands, impute B10 from B11, apply
+    ``NORM_NO_CLIP_2_STD`` using task statistics, and select the OLMoEarth
+    Sentinel-2 L2A 12-band order. Other GEO-Bench S2 segmentation tasks can
+    override ``eval_band_names``, ``output_band_names``, and ``imputes``.
     """
 
     def __init__(
@@ -139,6 +146,9 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         invalid_label_to_ignore: bool = True,
         label_resample_order: int = 0,
         default_timestamp: tuple[int, int, int] = (15, 4, 2024),
+        eval_band_names: list[str] | tuple[str, ...] | None = None,
+        output_band_names: list[str] | tuple[str, ...] | None = None,
+        imputes: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
         keep_raw_input: bool = False,
     ) -> None:
         self.num_classes = int(num_classes)
@@ -146,6 +156,13 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         self.invalid_label_to_ignore = bool(invalid_label_to_ignore)
         self.label_resample_order = int(label_resample_order)
         self.default_timestamp = tuple(int(x) for x in default_timestamp)
+        self.eval_band_names = list(eval_band_names or OFFICIAL_EVAL_S2_BAND_NAMES)
+        self.output_band_names = list(
+            output_band_names or OFFICIAL_OLMOEARTH_S2_L2A_BAND_NAMES
+        )
+        if imputes is None:
+            imputes = DEFAULT_S2_IMPUTES
+        self.imputes = [tuple(rule) for rule in imputes]
         self.keep_raw_input = bool(keep_raw_input)
         self._dataset = None
         self._task = None
@@ -178,29 +195,29 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         )
         band_stats = _impute_band_stats(
             task.band_stats,
-            M_SA_CROP_TYPE_IMPUTES,
-            OFFICIAL_EVAL_S2_BAND_NAMES,
+            self.imputes,
+            self.eval_band_names,
         )
         self._means_13 = np.asarray(
             [
                 _stats_to_float(band_stats[band_name], "mean")
-                for band_name in OFFICIAL_EVAL_S2_BAND_NAMES
+                for band_name in self.eval_band_names
             ],
             dtype=np.float32,
         )
         self._stds_13 = np.asarray(
             [
                 _stats_to_float(band_stats[band_name], "std")
-                for band_name in OFFICIAL_EVAL_S2_BAND_NAMES
+                for band_name in self.eval_band_names
             ],
             dtype=np.float32,
         )
         name_to_idx = {
-            name: idx for idx, name in enumerate(OFFICIAL_EVAL_S2_BAND_NAMES)
+            name: idx for idx, name in enumerate(self.eval_band_names)
         }
         self._olmo_indices = [
             name_to_idx[name]
-            for name in OFFICIAL_OLMOEARTH_S2_L2A_BAND_NAMES
+            for name in self.output_band_names
         ]
         self._dataset = dataset
         self._task = task
@@ -212,7 +229,8 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         sample = dataset[results["sample_idx"]]
         image_13 = _collect_s2_bands(
             sample,
-            OFFICIAL_EVAL_S2_BAND_NAMES,
+            self.eval_band_names,
+            self.imputes,
         ).astype(np.float32)
         raw_image = image_13.astype(np.float32)
         image_13 = _norm_no_clip_2_std(
@@ -251,7 +269,7 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         results["img"] = np.ascontiguousarray(image)
         if self.keep_raw_input:
             results["olmoearth_raw_img"] = np.ascontiguousarray(raw_image)
-            results["olmoearth_raw_band_names"] = OFFICIAL_EVAL_S2_BAND_NAMES
+            results["olmoearth_raw_band_names"] = self.eval_band_names
         results["gt_seg_map"] = np.ascontiguousarray(label)
         results["img_shape"] = image.shape[:2]
         results["ori_shape"] = image.shape[:2]

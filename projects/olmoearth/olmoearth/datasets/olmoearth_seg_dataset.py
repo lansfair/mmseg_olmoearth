@@ -10,6 +10,8 @@ from mmseg.registry import DATASETS
 from ..utils import (
     AWF_CLASSES,
     AWF_PALETTE,
+    CASHEW_PLANT_CLASSES,
+    CASHEW_PLANT_PALETTE,
     CROP_TYPE_CLASSES,
     CROP_TYPE_PALETTE,
     DFC2020_S2_CLASSES,
@@ -40,6 +42,10 @@ DATASET_METAINFO = {
     "crop_type": {
         "classes": CROP_TYPE_CLASSES,
         "palette": CROP_TYPE_PALETTE,
+    },
+    "cashew_plant": {
+        "classes": CASHEW_PLANT_CLASSES,
+        "palette": CASHEW_PLANT_PALETTE,
     },
     "dfc2020_s2": {
         "classes": DFC2020_S2_CLASSES,
