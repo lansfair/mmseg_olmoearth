@@ -212,6 +212,7 @@ class RGBToOlmoEarthS2(BaseTransform):
         rgb_channel_order: str = "RGB",
         input_value_range: str = "auto",
         std_multiplier: float = 2.0,
+        keep_raw_input: bool = False,
     ) -> None:
         rgb_channel_order = rgb_channel_order.upper()
         if sorted(rgb_channel_order) != ["B", "G", "R"]:
@@ -226,6 +227,7 @@ class RGBToOlmoEarthS2(BaseTransform):
         self.band_names = list(get_modality_bands("sentinel2_l2a"))
         self.norm_config = _load_computed_norm("sentinel2_l2a")
         self.std_multiplier = std_multiplier
+        self.keep_raw_input = keep_raw_input
 
     def _to_s2_scale(self, image: np.ndarray) -> np.ndarray:
         if self.input_value_range == "s2":
@@ -258,6 +260,7 @@ class RGBToOlmoEarthS2(BaseTransform):
                 f"Expected RGB image with {expected} channels, "
                 f"got {image.shape}"
             )
+        raw_image = image.copy() if self.keep_raw_input else None
         image = self._to_s2_scale(image)
         h, w = image.shape[:2]
         out = np.zeros(
@@ -282,6 +285,11 @@ class RGBToOlmoEarthS2(BaseTransform):
         results["olmoearth_num_timesteps"] = self.num_timesteps
         results["olmoearth_band_names"] = self.band_names
         results["present_bands"] = list(RGB_TO_SENTINEL2_L2A.values())
+        if raw_image is not None:
+            results["olmoearth_raw_img"] = np.ascontiguousarray(raw_image)
+            results["olmoearth_raw_band_names"] = list(
+                self.rgb_channel_order
+            )
         results["olmoearth_rgb_adapter"] = {
             "rgb_channel_order": self.rgb_channel_order,
             "input_value_range": self.input_value_range,

@@ -203,6 +203,62 @@ RGB is supported only as an explicit adapter through `RGBToOlmoEarthS2`. It maps
 R/G/B to Sentinel-2 B04/B03/B02 and fills missing Sentinel-2 bands with
 normalized zero. This is not a paper-reproduction path.
 
+## Large GeoTIFF Inference
+
+Use `projects/rs_large_infer/tools/large_image_inference.py` for
+sliding-window inference on large remote-sensing GeoTIFFs. The shared core
+handles sliding windows, model inference, and GeoTIFF output; the OLMoEarth
+adapter keeps OLMoEarth preprocessing transforms from the config while
+bypassing dataset-only file loaders and annotation loaders.
+
+RGB GeoTIFF example:
+
+```bash
+python projects/rs_large_infer/tools/large_image_inference.py \
+  /path/to/rgb_large.tif \
+  projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
+  /path/to/mmseg_checkpoint.pth \
+  /path/to/pred_label.tif \
+  --input-mode rgb \
+  --window-size 512 512 \
+  --stride 256 256 \
+  --batch-size 1 \
+  --device cuda:0 \
+  --rgb-channel-order RGB \
+  --cfg-options \
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
+```
+
+For RGB inputs, the script defaults to `RGB` GeoTIFF band order because raster
+bands are read in file order. Pass `--rgb-channel-order BGR` only if the input
+GeoTIFF is actually stored as B,G,R.
+
+Sentinel-2 GeoTIFF example:
+
+```bash
+python projects/rs_large_infer/tools/large_image_inference.py \
+  /path/to/s2_large.tif \
+  projects/olmoearth/configs/dfc2020_s2/olmoearth-base_4xb4-50e_dfc2020-s2.py \
+  /path/to/mmseg_checkpoint.pth \
+  /path/to/pred_label.tif \
+  --input-mode s2 \
+  --window-size 256 256 \
+  --stride 128 128 \
+  --batch-size 1 \
+  --device cuda:0 \
+  --source-band-names B01 B02 B03 B04 B05 B06 B07 B08 B8A B09 B10 B11 B12 \
+  --cfg-options \
+  model.backbone.model_config_path=/path/to/olmoearth/config.json \
+  model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
+```
+
+In S2 mode, if `--source-band-names` is omitted the input must already contain
+exactly the 12 OLMoEarth Sentinel-2 L2A bands in this order: `B02, B03, B04,
+B08, B05, B06, B07, B8A, B11, B12, B01, B09`. If source names are provided,
+the script selects and reorders bands to that order before applying
+`OlmoEarthNormalize`.
+
 ## GEO-Bench S2 Segmentation
 
 The GEO-Bench Sentinel-2 segmentation configs cover the segmentation tasks used

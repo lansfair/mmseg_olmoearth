@@ -154,7 +154,10 @@ def _enable_raw_input_export(
     if not enabled:
         return pipeline
     for transform in pipeline:
-        if transform.get("type") == "LoadGeoBenchS2OfficialNorm":
+        if transform.get("type") in {
+            "LoadGeoBenchS2OfficialNorm",
+            "RGBToOlmoEarthS2",
+        }:
             transform["keep_raw_input"] = True
     return pipeline
 
