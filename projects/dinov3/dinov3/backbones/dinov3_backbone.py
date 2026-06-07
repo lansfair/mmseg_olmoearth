@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import torch
 from mmengine.model import BaseModule
@@ -13,8 +13,9 @@ from torch import Tensor
 class DINOv3ViTBackbone(BaseModule):
     """DINOv3 ViT backbone loaded from a local torch.hub repo.
 
-    The backbone returns a single dense patch feature map in MMSegmentation
-    format: ``(B, C, H // patch_size, W // patch_size)``.
+    By default the backbone returns one dense patch feature map. When
+    ``out_indices`` contains multiple layers, it returns multiple feature maps.
+    Use a neck such as ``MultiLevelNeck`` to rescale them for pyramid decoders.
     """
 
     def __init__(
@@ -25,6 +26,7 @@ class DINOv3ViTBackbone(BaseModule):
         patch_size: int = 16,
         out_channels: int = 1024,
         freeze: bool = True,
+        out_indices: int | Sequence[int] | None = None,
         hub_kwargs: dict[str, Any] | None = None,
         init_cfg: dict | None = None,
     ) -> None:
@@ -33,14 +35,29 @@ class DINOv3ViTBackbone(BaseModule):
         self.model_name = model_name
         self.weights_path = str(weights_path) if weights_path else None
         self.patch_size = patch_size
-        self.out_channels = out_channels
         self.freeze = freeze
+        self.out_indices = self._normalize_out_indices(out_indices)
         self.hub_kwargs = hub_kwargs or {}
         self.model = self._load_model()
+        self.out_channels = (
+            [out_channels] * len(self.out_indices)
+            if self.out_indices is not None
+            else out_channels
+        )
         if freeze:
             self.model.eval()
             for param in self.model.parameters():
                 param.requires_grad = False
+
+    @staticmethod
+    def _normalize_out_indices(
+        out_indices: int | Sequence[int] | None,
+    ) -> tuple[int, ...] | None:
+        if out_indices is None:
+            return None
+        if isinstance(out_indices, int):
+            return (out_indices,)
+        return tuple(out_indices)
 
     def _load_model(self):
         repo_dir = Path(self.repo_dir)
@@ -63,65 +80,21 @@ class DINOv3ViTBackbone(BaseModule):
             **kwargs,
         )
 
+    def init_weights(self) -> None:
+        """Preserve DINOv3 weights loaded by ``torch.hub.load``.
+
+        MMEngine recursively calls ``init_weights`` after module construction.
+        The DINOv3 model has already loaded its pretrained weights inside
+        ``torch.hub.load``; calling the ViT's own initializer here would
+        overwrite those weights.
+        """
+        return
+
     def train(self, mode: bool = True):
         super().train(mode)
         if self.freeze:
             self.model.eval()
         return self
-
-    def _tokens_to_feature_map(
-        self,
-        tokens: Tensor,
-        height: int,
-        width: int,
-    ) -> Tensor:
-        if tokens.ndim == 4:
-            return tokens.contiguous()
-        if tokens.ndim != 3:
-            raise ValueError(
-                "Expected DINOv3 tokens as BCHW or BNC, "
-                f"got shape {tuple(tokens.shape)}"
-            )
-        batch_size, num_tokens, channels = tokens.shape
-        grid_h = height // self.patch_size
-        grid_w = width // self.patch_size
-        expected_tokens = grid_h * grid_w
-        if num_tokens != expected_tokens:
-            raise ValueError(
-                "DINOv3 patch token count does not match input size: "
-                f"got {num_tokens}, expected {expected_tokens} "
-                f"for image size {(height, width)} and patch_size={self.patch_size}"
-            )
-        return tokens.transpose(1, 2).reshape(
-            batch_size,
-            channels,
-            grid_h,
-            grid_w,
-        ).contiguous()
-
-    def _extract_tokens(self, inputs: Tensor) -> Tensor:
-        if hasattr(self.model, "get_intermediate_layers"):
-            features = self.model.get_intermediate_layers(
-                inputs,
-                n=1,
-                reshape=True,
-                return_class_token=False,
-            )
-            if isinstance(features, (tuple, list)):
-                return features[-1]
-            return features
-
-        features = self.model.forward_features(inputs)
-        if isinstance(features, dict):
-            for key in (
-                "x_norm_patchtokens",
-                "x_prenorm",
-                "patch_tokens",
-                "tokens",
-            ):
-                if key in features:
-                    return features[key]
-        return features
 
     def forward(self, inputs: Tensor) -> tuple[Tensor]:
         if inputs.shape[1] != 3:
@@ -135,6 +108,31 @@ class DINOv3ViTBackbone(BaseModule):
                 "DINOv3 input size must be divisible by patch_size, "
                 f"got {(height, width)} and patch_size={self.patch_size}"
             )
+        if not hasattr(self.model, "get_intermediate_layers"):
+            raise AttributeError(
+                "DINOv3ViTBackbone requires the loaded model to provide "
+                "get_intermediate_layers(..., reshape=True)."
+            )
+
         with torch.set_grad_enabled(not self.freeze):
-            tokens = self._extract_tokens(inputs)
-        return (self._tokens_to_feature_map(tokens, height, width),)
+            if self.out_indices is not None:
+                features = self.model.get_intermediate_layers(
+                    inputs,
+                    n=self.out_indices,
+                    reshape=True,
+                    norm=True,
+                    return_class_token=False,
+                )
+            else:
+                features = self.model.get_intermediate_layers(
+                    inputs,
+                    n=1,
+                    reshape=True,
+                    return_class_token=False,
+                )
+                if isinstance(features, (tuple, list)):
+                    features = features[-1]
+
+        if isinstance(features, Tensor):
+            features = (features,)
+        return tuple(feature.contiguous() for feature in features)
