@@ -542,6 +542,10 @@ class OlmoEarthAdapter(BaseAdapter):
         args: argparse.Namespace,
     ) -> None:
         super().__init__(cfg, raw_pipeline, args)
+        import_modules_from_strings(
+            imports=["projects.olmoearth.olmoearth"],
+            allow_failed_imports=False,
+        )
         transforms = clean_pipeline(raw_pipeline)
         self.olmo_mode = self._resolve_olmo_mode()
         if self.olmo_mode == "rgb":
