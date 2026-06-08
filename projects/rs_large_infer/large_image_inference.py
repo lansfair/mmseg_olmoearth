@@ -16,6 +16,7 @@ from mmengine.runner import load_checkpoint
 from mmengine.utils import import_modules_from_strings
 from mmseg.registry import MODELS
 from mmseg.structures import SegDataSample
+from tqdm.auto import tqdm
 
 try:
     import rasterio
@@ -806,7 +807,13 @@ def run_large_inference(args: argparse.Namespace) -> None:
             f"batch size: {args.batch_size}; output: {output_path}"
         )
         with rasterio.open(output_path, "w", **profile) as dst:
-            for batch_idx in range(total_batches):
+            progress = tqdm(
+                range(total_batches),
+                desc="Large image inference",
+                unit="batch",
+                dynamic_ncols=True,
+            )
+            for batch_idx in progress:
                 batch_grids = grids[
                     batch_idx * args.batch_size:(batch_idx + 1) * args.batch_size
                 ]
@@ -823,7 +830,6 @@ def run_large_inference(args: argparse.Namespace) -> None:
                         1,
                         window=Window(x + crop_x, y + crop_y, crop_w, crop_h),
                     )
-                print(f"processed batch {batch_idx + 1}/{total_batches}")
 
 
 def main() -> None:
