@@ -724,6 +724,7 @@ def run_large_inference(args: argparse.Namespace) -> None:
     if args.cfg_options is not None:
         cfg.merge_from_dict(args.cfg_options)
     import_custom_modules(cfg)
+    init_default_scope(cfg.get("default_scope", "mmseg"))
 
     raw_pipeline = get_pipeline(cfg)
     adapter = select_adapter(cfg, raw_pipeline, args)
