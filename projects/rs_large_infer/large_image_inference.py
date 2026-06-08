@@ -35,7 +35,7 @@ S2_BANDS = [
 PACK_TYPES = {"PackSegInputs", "PackOlmoEarthSegInputs"}
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Shared sliding-window large GeoTIFF inference for single-input "
@@ -148,7 +148,7 @@ def parse_args() -> argparse.Namespace:
         action=DictAction,
         help="Override config options, same syntax as tools/test.py.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def get_pipeline(cfg: Config) -> list[dict[str, Any]]:
@@ -832,5 +832,5 @@ def run_large_inference(args: argparse.Namespace) -> None:
                     )
 
 
-def main() -> None:
-    run_large_inference(parse_args())
+def main(argv: list[str] | None = None) -> None:
+    run_large_inference(parse_args(argv))
