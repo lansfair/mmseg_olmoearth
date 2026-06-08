@@ -227,6 +227,49 @@ def build_model(cfg: Config, checkpoint: str, device: str):
     return model
 
 
+def backbone_cfg(cfg: Config) -> dict[str, Any]:
+    backbone = cfg.model.get("backbone", {})
+    if not isinstance(backbone, dict):
+        return {}
+    return backbone
+
+
+def backbone_type(cfg: Config) -> str:
+    return str(backbone_cfg(cfg).get("type", ""))
+
+
+def uses_olmoearth_feature_backbone(cfg: Config) -> bool:
+    return backbone_type(cfg) == "OlmoEarthFeatureBackbone"
+
+
+def validate_large_inference_config(cfg: Config, args: argparse.Namespace) -> None:
+    if not uses_olmoearth_feature_backbone(cfg):
+        return
+
+    invalid_keys = sorted(
+        set(backbone_cfg(cfg))
+        - {
+            "type",
+            "out_channels",
+        }
+    )
+    if invalid_keys:
+        raise ValueError(
+            "OlmoEarthFeatureBackbone is the offline-embedding backbone and "
+            "does not build the OLMoEarth encoder. Remove these online "
+            f"backbone options: {invalid_keys}. Use an OlmoEarthBackbone "
+            "config for raw RGB/Sentinel-2 GeoTIFF inference."
+        )
+    if args.input_mode in {"rgb", "s2", "copernicus"}:
+        raise ValueError(
+            "OlmoEarthFeatureBackbone expects precomputed dense embedding "
+            "inputs, not raw RGB/Sentinel-2/Copernicus imagery. Use "
+            "--input-mode standard only if the input GeoTIFF already stores "
+            "embedding channels, or switch to an online OlmoEarthBackbone "
+            "config for raw image inference."
+        )
+
+
 def make_grids(
     width: int,
     height: int,
@@ -704,6 +747,14 @@ def select_adapter(
     raw_pipeline: list[dict[str, Any]],
     args: argparse.Namespace,
 ) -> BaseAdapter:
+    if uses_olmoearth_feature_backbone(cfg):
+        if args.input_mode in {"rgb", "s2", "copernicus"}:
+            raise ValueError(
+                "OlmoEarthFeatureBackbone configs are offline embedding "
+                "configs. They cannot run raw image adapters "
+                f"(--input-mode {args.input_mode})."
+            )
+        return BaseAdapter(cfg, raw_pipeline, args)
     if args.input_mode == "copernicus":
         return CopernicusAdapter(cfg, raw_pipeline, args)
     if args.input_mode in {"rgb", "s2"} and OlmoEarthAdapter.detect(cfg, raw_pipeline):
@@ -725,6 +776,7 @@ def run_large_inference(args: argparse.Namespace) -> None:
         cfg.merge_from_dict(args.cfg_options)
     import_custom_modules(cfg)
     init_default_scope(cfg.get("default_scope", "mmseg"))
+    validate_large_inference_config(cfg, args)
 
     raw_pipeline = get_pipeline(cfg)
     adapter = select_adapter(cfg, raw_pipeline, args)
