@@ -13,6 +13,8 @@ def select_adapter(
     raw_pipeline: list[dict[str, Any]],
     args,
 ) -> BaseAdapter:
+    """根据输入模式和配置内容选择对应的大图推理适配器。"""
+
     if uses_olmoearth_feature_backbone(cfg):
         if args.input_mode in {"rgb", "s2", "copernicus"}:
             raise ValueError(

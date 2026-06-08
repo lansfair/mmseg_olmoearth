@@ -12,6 +12,8 @@ from .base import BaseAdapter
 
 
 class OlmoEarthAdapter(BaseAdapter):
+    """OLMoEarth 适配器：为 RGB/S2 原始影像补充模型需要的输入格式和元信息。"""
+
     name = "olmoearth"
     meta_keys = BaseAdapter.meta_keys + (
         "olmoearth_modality",
@@ -25,6 +27,8 @@ class OlmoEarthAdapter(BaseAdapter):
 
     @classmethod
     def detect(cls, cfg: Config, raw_pipeline: list[dict[str, Any]]) -> bool:
+        """根据 transform 或模型名称判断当前配置是否需要 OLMoEarth 适配。"""
+
         return (
             find_transform(raw_pipeline, "RGBToOlmoEarthS2") is not None
             or find_transform(raw_pipeline, "OlmoEarthNormalize") is not None
@@ -38,6 +42,8 @@ class OlmoEarthAdapter(BaseAdapter):
         raw_pipeline: list[dict[str, Any]],
         args,
     ) -> None:
+        """初始化 OLMoEarth 模式，并按 RGB/S2 场景改写推理 pipeline。"""
+
         super().__init__(cfg, raw_pipeline, args)
         import_modules_from_strings(
             imports=["projects.olmoearth.olmoearth"],
@@ -69,6 +75,8 @@ class OlmoEarthAdapter(BaseAdapter):
         self.pipeline = Compose(transforms)
 
     def _resolve_olmo_mode(self) -> str:
+        """确定当前 OLMoEarth 输入是 RGB 兼容模式还是 Sentinel-2 模式。"""
+
         if self.args.input_mode in {"rgb", "s2"}:
             return self.args.input_mode
         if find_transform(self.raw_pipeline, "RGBToOlmoEarthS2") is not None:
@@ -76,6 +84,8 @@ class OlmoEarthAdapter(BaseAdapter):
         return "s2"
 
     def prepare(self, src) -> None:
+        """读图前校验输入波段，并在 S2 模式下确定 band 重排顺序。"""
+
         if self.olmo_mode == "s2":
             self.band_indices = band_indices_for_s2(
                 self.args.source_band_names,
@@ -89,6 +99,8 @@ class OlmoEarthAdapter(BaseAdapter):
         src,
         grid: tuple[int, int, int, int, int, int, int, int],
     ) -> np.ndarray:
+        """读取 OLMoEarth 滑窗，并按需对 S2 数值做缩放。"""
+
         image = super().read(src, grid)
         if self.olmo_mode == "s2" and self.args.s2_scale_factor is not None:
             image = image.astype(np.float32, copy=False) * self.args.s2_scale_factor
@@ -100,6 +112,8 @@ class OlmoEarthAdapter(BaseAdapter):
         src,
         grid: tuple[int, int, int, int, int, int, int, int],
     ) -> dict[str, Any]:
+        """构造 OLMoEarth 推理所需的时间、模态和 band 元信息。"""
+
         results = super().make_results(image, src, grid)
         results["timestamps"] = np.asarray([tuple(self.args.timestamp)], dtype=np.int64)
         if self.olmo_mode == "s2":

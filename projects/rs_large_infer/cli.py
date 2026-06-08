@@ -8,6 +8,8 @@ from .runner import run_large_inference
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """解析大图推理命令行参数，支持外部传入参数列表。"""
+
     parser = argparse.ArgumentParser(
         description=(
             "Shared sliding-window large GeoTIFF inference for single-input "
@@ -124,4 +126,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """命令行入口：解析参数后启动大图滑窗推理。"""
+
     run_large_inference(parse_args(argv))

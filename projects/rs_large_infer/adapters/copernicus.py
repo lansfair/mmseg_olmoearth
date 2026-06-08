@@ -19,11 +19,15 @@ from .base import BaseAdapter
 
 
 class CopernicusAdapter(BaseAdapter):
+    """CopernicusFM 适配器：为每个滑窗生成 lon/lat/time/area 元信息。"""
+
     name = "copernicus"
     meta_keys = BaseAdapter.meta_keys + ("copernicus_meta",)
 
     @classmethod
     def detect(cls, cfg: Config, raw_pipeline: list[dict[str, Any]]) -> bool:
+        """根据模型、backbone 或 transform 名称判断是否为 CopernicusFM 配置。"""
+
         model_type = str(cfg.model.get("type", ""))
         backbone_type = str(cfg.model.get("backbone", {}).get("type", ""))
         transform_types = {str(transform.get("type")) for transform in raw_pipeline}
@@ -40,6 +44,8 @@ class CopernicusAdapter(BaseAdapter):
         raw_pipeline: list[dict[str, Any]],
         args,
     ) -> None:
+        """初始化 Copernicus 读图参数、时间信息和空间元信息来源。"""
+
         super().__init__(cfg, raw_pipeline, args)
         self.pipeline = Compose(clean_pipeline(raw_pipeline, {"AddCopernicusMeta"}))
         self.loader = find_transform(raw_pipeline, "LoadCopernicusGeoTiffImageFromFile")
@@ -63,6 +69,8 @@ class CopernicusAdapter(BaseAdapter):
         )
 
     def _get_patch_area(self) -> float:
+        """按命令行、pipeline、backbone 的优先级解析 patch_area。"""
+
         if self.args.copernicus_patch_area is not None:
             return float(self.args.copernicus_patch_area)
         if self.loader is not None and self.loader.get("patch_area") is not None:
@@ -76,6 +84,8 @@ class CopernicusAdapter(BaseAdapter):
         return float("nan")
 
     def _get_sensing_time(self) -> float:
+        """解析 sensing time，返回 days since 1970-01-01。"""
+
         if self.args.copernicus_date_days is not None:
             return float(self.args.copernicus_date_days)
         parsed = parse_days_from_date(self.args.copernicus_date)
@@ -95,6 +105,8 @@ class CopernicusAdapter(BaseAdapter):
         src,
         grid: tuple[int, int, int, int, int, int, int, int],
     ) -> dict[str, Any]:
+        """向 results 中追加 CopernicusFM 需要的 copernicus_meta。"""
+
         results = super().make_results(image, src, grid)
         lon, lat = window_lon_lat(src, grid, self.lon_lat_override)
         results["copernicus_meta"] = np.array(

@@ -30,6 +30,8 @@ from .utils import (
 
 
 def run_large_inference(args) -> None:
+    """执行完整大图推理流程：读配置、建模型、滑窗预测并写出 GeoTIFF。"""
+
     if args.batch_size <= 0:
         raise ValueError("--batch-size must be positive.")
 
