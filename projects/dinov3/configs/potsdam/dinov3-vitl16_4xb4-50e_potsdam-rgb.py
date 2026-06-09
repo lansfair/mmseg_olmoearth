@@ -1,6 +1,6 @@
 custom_imports = dict(
     imports=[
-        "projects.dinov3.dinov3",
+        "projects.dinov3.mmseg_dinov3",
         "projects.olmoearth.olmoearth",
     ],
     allow_failed_imports=False,
