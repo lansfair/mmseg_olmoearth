@@ -1650,3 +1650,85 @@ Total tensor keys in checkpoint: 370
 0097: blocks.6.norm1.bias                                                                        | shape=(1024,), dtype=torch.float32, numel=1,024
 0098: blocks.6.attn.qkv.weight                                                                   | shape=(3072, 1024), dtype=torch.float32, numel=3,145,728
 0099: blocks.6.attn.qkv.bias                                                                     | shape=(3072,), dtype=torch.float32, numel=3,072
+
+
+
+
+
+
+
+
+
+
+## 控制台输出
+================================================================================
+Loading checkpoint
+================================================================================
+Checkpoint: /mnt/ht2-nas2/EO_test/dataset/dinov3_pretrained/dinov3-vit16-pretrain-sat493m/pytorch_model.bin
+Detected attn.qkv.bias: True
+Using timm model: vit_large_patch16_dinov3_qkvb.sat493m
+
+================================================================================
+Creating timm model
+================================================================================
+Best stripped prefix: ''
+Matched keys before loading: 269 / 366
+
+================================================================================
+Loading weights
+================================================================================
+Missing keys:    97
+Unexpected keys: 101
+
+First 20 missing keys:
+   reg_token
+   blocks.0.gamma_1
+   blocks.0.gamma_2
+   blocks.0.attn.q_bias
+   blocks.0.attn.v_bias
+   blocks.1.gamma_1
+   blocks.1.gamma_2
+   blocks.1.attn.q_bias
+   blocks.1.attn.v_bias
+   blocks.2.gamma_1
+   blocks.2.gamma_2
+   blocks.2.attn.q_bias
+   blocks.2.attn.v_bias
+   blocks.3.gamma_1
+   blocks.3.gamma_2
+   blocks.3.attn.q_bias
+   blocks.3.attn.v_bias
+   blocks.4.gamma_1
+   blocks.4.gamma_2
+   blocks.4.attn.q_bias
+
+First 20 unexpected keys:
+   storage_tokens
+   mask_token
+   rope_embed.periods
+   local_cls_norm.weight
+   local_cls_norm.bias
+   blocks.0.ls1.gamma
+   blocks.0.ls2.gamma
+   blocks.0.attn.qkv.bias
+   blocks.0.attn.qkv.bias_mask
+   blocks.1.ls1.gamma
+   blocks.1.ls2.gamma
+   blocks.1.attn.qkv.bias
+   blocks.1.attn.qkv.bias_mask
+   blocks.2.ls1.gamma
+   blocks.2.ls2.gamma
+   blocks.2.attn.qkv.bias
+   blocks.2.attn.qkv.bias_mask
+   blocks.3.ls1.gamma
+   blocks.3.ls2.gamma
+   blocks.3.attn.qkv.bias
+
+================================================================================
+Writing txt
+================================================================================
+Output: ./test/timm_style_model_parameters.txt
+
+Done.
+Saved to: ./test/timm_style_model_parameters.txt
+Load status: WARNING, please check missing/unexpected keys in txt.
