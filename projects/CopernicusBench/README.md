@@ -1,4 +1,4 @@
-# CopernicusBench MMSegmentation Project
+﻿# CopernicusBench MMSegmentation Project
 
 This project migrates Copernicus-Bench segmentation tasks into
 MMSegmentation's `projects/` layout.
@@ -86,7 +86,7 @@ python tools/train.py projects/CopernicusBench/configs/upernet_copernicus-fm-bas
 
 ## Large GeoTIFF Inference
 
-Use `projects/rs_large_infer/tools/large_image_inference.py` for
+Use `projects/rs_large_infer/src/cli.py` for
 sliding-window inference on a large single GeoTIFF. The shared core handles
 sliding windows, model inference, and GeoTIFF output; the Copernicus adapter
 bypasses dataset-only file loaders, keeps test-time image transforms such as
@@ -104,7 +104,7 @@ sees `CopernicusEncoderDecoder`, `CopernicusFMBackbone`,
 Example:
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
+python projects/rs_large_infer/src/cli.py \
   /path/to/large_s2.tif \
   projects/CopernicusBench/configs/upernet_copernicus-fm-base_1xb16-50e_dfc2020-s2-256x256.py \
   /path/to/mmseg_checkpoint.pth \
@@ -136,3 +136,6 @@ Useful overrides:
 `--copernicus-date` and `--copernicus-date-days` are useful when the large
 image filename does not follow the dataset date convention. If the raster has a
 CRS, lon/lat are computed from each window center and transformed to EPSG:4326.
+
+
+

@@ -1,16 +1,41 @@
-# 遥感大图滑窗推理脚本
+﻿# 遥感大图滑窗推理脚本
 
 这个 project 提供一个统一的大图 GeoTIFF 推理入口，用于
 MMSegmentation 语义分割模型的遥感大图滑窗推理。
 
 统一入口：
 
+推荐把核心脚本当作底层入口，把常用模型/数据集组合写成独立场景脚本。
+例如 OLMoEarth 在 Potsdam RGB 大图上的推理可以直接使用：
+
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
-  /path/to/large.tif \
-  /path/to/config.py \
-  /path/to/checkpoint.pth \
-  /path/to/pred_label.tif \
+python projects/rs_large_infer/tools/infer_olmoearth_potsdam_rgb.py \
+  --image /data/potsdam_large_rgb.tif \
+  --checkpoint /checkpoints/olmoearth_potsdam.pth \
+  --output /outputs/potsdam_pred.tif
+```
+
+DINOv3 在 Potsdam RGB 大图上的推理可以使用：
+
+```bash
+python projects/rs_large_infer/tools/infer_dinov3_potsdam_rgb.py \
+  --image /data/potsdam_large_rgb.tif \
+  --checkpoint /checkpoints/dinov3_potsdam.pth \
+  --output /outputs/potsdam_pred.tif
+```
+
+也可以先编辑这个文件顶部的 `IMAGE`、`CHECKPOINT`、`OUTPUT` 等变量，
+然后不带参数运行。没有传入的参数会读取脚本顶部默认值，传入的命令行参数
+会覆盖同名默认值。
+
+通用入口仍然是：
+
+```bash
+python projects/rs_large_infer/src/cli.py \
+  --image /path/to/large.tif \
+  --config /path/to/config.py \
+  --checkpoint /path/to/checkpoint.pth \
+  --output /path/to/pred_label.tif \
   --window-size 512 512 \
   --stride 256 256 \
   --batch-size 1 \
@@ -45,11 +70,11 @@ copernicus  CopernicusFM 模式，生成 [lon, lat, time, patch_area] metadata�
 适用于 DINOv3、SegFormer、UPerNet 等不需要特殊遥感 metadata 的模型：
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
-  /data/large_rgb.tif \
-  projects/dinov3/configs/potsdam/dinov3-vitl16_4xb4-50e_potsdam-rgb.py \
-  /checkpoints/dinov3_mmseg.pth \
-  /outputs/pred.tif \
+python projects/rs_large_infer/src/cli.py \
+  --image /data/large_rgb.tif \
+  --config projects/dinov3/configs/potsdam/dinov3-vitl16_4xb4-50e_potsdam-rgb.py \
+  --checkpoint /checkpoints/dinov3_mmseg.pth \
+  --output /outputs/pred.tif \
   --input-mode standard \
   --window-size 512 512 \
   --stride 256 256 \
@@ -74,11 +99,11 @@ python projects/rs_large_infer/tools/large_image_inference.py \
 RGB GeoTIFF 会按文件 band 顺序读取，通常是 R/G/B：
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
-  /data/rgb_large.tif \
-  projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
-  /checkpoints/mmseg_checkpoint.pth \
-  /outputs/pred_label.tif \
+python projects/rs_large_infer/src/cli.py \
+  --image /data/rgb_large.tif \
+  --config projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
+  --checkpoint /checkpoints/mmseg_checkpoint.pth \
+  --output /outputs/pred_label.tif \
   --input-mode rgb \
   --window-size 512 512 \
   --stride 256 256 \
@@ -99,11 +124,11 @@ python projects/rs_large_infer/tools/large_image_inference.py \
 ## OLMoEarth Sentinel-2 示例
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
-  /data/s2_large.tif \
-  projects/olmoearth/configs/dfc2020_s2/olmoearth-base_4xb4-50e_dfc2020-s2.py \
-  /checkpoints/mmseg_checkpoint.pth \
-  /outputs/pred_label.tif \
+python projects/rs_large_infer/src/cli.py \
+  --image /data/s2_large.tif \
+  --config projects/olmoearth/configs/dfc2020_s2/olmoearth-base_4xb4-50e_dfc2020-s2.py \
+  --checkpoint /checkpoints/mmseg_checkpoint.pth \
+  --output /outputs/pred_label.tif \
   --input-mode s2 \
   --window-size 256 256 \
   --stride 128 128 \
@@ -135,11 +160,11 @@ CopernicusFM 需要 `copernicus_meta`：
 `patch_area`。
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
-  /data/large_s2.tif \
-  projects/CopernicusBench/configs/upernet_copernicus-fm-base_1xb16-50e_dfc2020-s2-256x256.py \
-  /checkpoints/mmseg_checkpoint.pth \
-  /outputs/pred_label.tif \
+python projects/rs_large_infer/src/cli.py \
+  --image /data/large_s2.tif \
+  --config projects/CopernicusBench/configs/upernet_copernicus-fm-base_1xb16-50e_dfc2020-s2-256x256.py \
+  --checkpoint /checkpoints/mmseg_checkpoint.pth \
+  --output /outputs/pred_label.tif \
   --input-mode copernicus \
   --window-size 256 256 \
   --stride 128 128 \
@@ -183,3 +208,6 @@ python projects/rs_large_infer/tools/large_image_inference.py \
 
 输出是单波段类别 GeoTIFF。类别数不超过 255 时写 `uint8`，不超过 32767
 时写 `int16`，更大时写 `int32`。
+
+
+

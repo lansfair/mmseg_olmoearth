@@ -1,4 +1,4 @@
-# OLMoEarth for MMSegmentation
+﻿# OLMoEarth for MMSegmentation
 
 This project is a non-invasive OpenMMLab migration for OLMoEarth downstream
 semantic segmentation tasks. It is organized around explicit converted data
@@ -205,7 +205,7 @@ normalized zero. This is not a paper-reproduction path.
 
 ## Large GeoTIFF Inference
 
-Use `projects/rs_large_infer/tools/large_image_inference.py` for
+Use `projects/rs_large_infer/src/cli.py` for
 sliding-window inference on large remote-sensing GeoTIFFs. The shared core
 handles sliding windows, model inference, and GeoTIFF output; the OLMoEarth
 adapter keeps OLMoEarth preprocessing transforms from the config while
@@ -214,7 +214,7 @@ bypassing dataset-only file loaders and annotation loaders.
 RGB GeoTIFF example:
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
+python projects/rs_large_infer/src/cli.py \
   /path/to/rgb_large.tif \
   projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
   /path/to/mmseg_checkpoint.pth \
@@ -237,7 +237,7 @@ GeoTIFF is actually stored as B,G,R.
 Sentinel-2 GeoTIFF example:
 
 ```bash
-python projects/rs_large_infer/tools/large_image_inference.py \
+python projects/rs_large_infer/src/cli.py \
   /path/to/s2_large.tif \
   projects/olmoearth/configs/dfc2020_s2/olmoearth-base_4xb4-50e_dfc2020-s2.py \
   /path/to/mmseg_checkpoint.pth \
@@ -394,3 +394,6 @@ python tools/train.py \
   model.backbone.model_config_path=/path/to/olmoearth/config.json \
   model.backbone.init_cfg.checkpoint=/path/to/olmoearth/weights.pth
 ```
+
+
+

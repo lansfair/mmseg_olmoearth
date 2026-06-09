@@ -8,9 +8,9 @@ custom_imports = dict(
 
 data_root = "/mnt/ht2-nas2/EO_test/mty/potsdam"
 dinov3_root = "/mnt/ht2-nas2/EO_test/dataset/dinov3_pretrained"
-dinov3_repo_dir = "projects/dinov3/dinov3-main"
+dinov3_repo_dir = "/mnt/ht2-nas2/wj/large_tif_infer_test/mmseg_olmoearth/projects/dinov3/dinov3-main"
 dinov3_weights_path = (
-    f"{dinov3_root}/DINOv3 ViT SAT-493M/dinov3_vitl16_pretrain_sat493m.pth"
+    f"{dinov3_root}/DINOv3 ViT SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
 )
 work_dir = "./work_dirs/dinov3-vitl16_4xb4-50e_potsdam-rgb-rvsa"
 

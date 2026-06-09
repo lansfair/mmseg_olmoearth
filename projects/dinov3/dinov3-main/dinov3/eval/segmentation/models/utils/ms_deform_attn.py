@@ -10,7 +10,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.autograd import Function
-from torch.amp import custom_fwd, custom_bwd
+
+import inspect, functools
+try:
+    from torch.amp import custom_fwd as _custom_fwd, custom_bwd as _custom_bwd
+except Exception:
+    from torch.cuda.amp import custom_fwd as _custom_fwd, custom_bwd as _custom_bwd
 
 from torch.autograd.function import once_differentiable
 from torch.nn.init import constant_, xavier_uniform_
@@ -22,10 +27,18 @@ except ImportError:
     # the compiled extension for multi-scale deformable attention
     MSDA = None
 
+if 'device_type' in inspect.signature(_custom_fwd).parameters:
+    custom_fwd = functools.partial(_custom_fwd, device_type='cuda')
+    custom_bwd = functools.partial(_custom_bwd, device_type='cuda')
+else:
+    custom_fwd = _custom_fwd
+    custom_bwd = _custom_bwd
+
 
 class MSDeformAttnFunction(Function):
     @staticmethod
-    @custom_fwd(device_type="cuda", cast_inputs=torch.float32)
+    # @custom_fwd(device_type="cuda", cast_inputs=torch.float32)
+    @custom_fwd(cast_inputs=torch.float32)
     def forward(
         ctx, value, value_spatial_shapes, value_level_start_index, sampling_locations, attention_weights, im2col_step
     ):
@@ -44,7 +57,8 @@ class MSDeformAttnFunction(Function):
 
     @staticmethod
     @once_differentiable
-    @custom_bwd(device_type="cuda")
+    @custom_bwd
+    # @custom_bwd(device_type="cuda")
     def backward(ctx, grad_output):
         if MSDA is None:
             raise RuntimeError(

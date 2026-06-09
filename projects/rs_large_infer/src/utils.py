@@ -102,7 +102,7 @@ def build_model(cfg: Config, checkpoint: str, device: str):
     model_type = str(cfg.model.get("type", ""))
     if "Siam" in model_type or "DualInput" in model_type:
         raise ValueError(
-            "large_image_inference.py supports single-input semantic "
+            "large image inference supports single-input semantic "
             "segmentation models only."
         )
     init_default_scope(cfg.get("default_scope", "mmseg"))
@@ -180,17 +180,28 @@ def make_grids(
 
     x_half_overlap = (win_w - stride_x + 1) // 2
     y_half_overlap = (win_h - stride_y + 1) // 2
+    x_offsets = list(range(0, width - win_w + 1, stride_x))
+    y_offsets = list(range(0, height - win_h + 1, stride_y))
+    if x_offsets[-1] != width - win_w:
+        x_offsets.append(width - win_w)
+    if y_offsets[-1] != height - win_h:
+        y_offsets.append(height - win_h)
+
     grids = []
-    for y in range(0, height, stride_y):
-        y_end = y + win_h >= height
-        y_offset = height - win_h if y_end else y
+    for y_index, y_offset in enumerate(y_offsets):
+        y_end = y_index == len(y_offsets) - 1
         y_crop_off = 0 if y_offset == 0 else y_half_overlap
-        y_crop_size = win_h if y_end else win_h - y_crop_off
-        for x in range(0, width, stride_x):
-            x_end = x + win_w >= width
-            x_offset = width - win_w if x_end else x
+        y_crop_size = (
+            height - y_offset - y_crop_off
+            if y_end else win_h - y_crop_off
+        )
+        for x_index, x_offset in enumerate(x_offsets):
+            x_end = x_index == len(x_offsets) - 1
             x_crop_off = 0 if x_offset == 0 else x_half_overlap
-            x_crop_size = win_w if x_end else win_w - x_crop_off
+            x_crop_size = (
+                width - x_offset - x_crop_off
+                if x_end else win_w - x_crop_off
+            )
             grids.append(
                 (
                     x_offset,
