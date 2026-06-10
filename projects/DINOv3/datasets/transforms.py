@@ -1,360 +1,239 @@
+from __future__ import annotations
+
+import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence
 
 import torch
 import torch.nn.functional as F
 from mmcv.transforms import BaseTransform
 from mmengine.structures import PixelData
+from mmseg.registry import TRANSFORMS
 from mmseg.structures import SegDataSample
 
 
-def _collect_registries():
-    registries = []
+TEN_TO_THIRTEEN = (0, 0, 1, 2, 3, 4, 5, 6, 7, 7, 8, 8, 9)
+
+
+def _torch_load(path: str):
     try:
-        from mmseg.registry import TRANSFORMS as MMSEG_TRANSFORMS
-        registries.append(MMSEG_TRANSFORMS)
-    except Exception:
-        pass
-
-    # Extra registration to the root MMEngine registry makes the transform more
-    # tolerant when default_scope is missing or wrong.
-    try:
-        from mmengine.registry import TRANSFORMS as MMENGINE_TRANSFORMS
-        registries.append(MMENGINE_TRANSFORMS)
-    except Exception:
-        pass
-
-    unique = []
-    seen = set()
-    for registry in registries:
-        if id(registry) not in seen:
-            unique.append(registry)
-            seen.add(id(registry))
-    return unique
-
-
-def _register_transform(cls):
-    for registry in _collect_registries():
-        registry.register_module(module=cls, force=True)
-    return cls
-
-
-def _torch_load(path: Union[str, Path]):
-    """torch.load wrapper compatible with different PyTorch versions."""
-    try:
-        return torch.load(str(path), map_location='cpu', weights_only=True)
+        return torch.load(path, map_location='cpu', weights_only=False)
     except TypeError:
-        return torch.load(str(path), map_location='cpu')
+        return torch.load(path, map_location='cpu')
 
 
-def _extract_tensor(obj: Any, preferred_keys: Sequence[str], path: Union[str, Path]) -> torch.Tensor:
-    if torch.is_tensor(obj):
-        return obj
+def _extract_tensor(value, keys: Sequence[str]) -> torch.Tensor:
+    if isinstance(value, dict):
+        for key in keys:
+            if torch.is_tensor(value.get(key)):
+                value = value[key]
+                break
+    if not torch.is_tensor(value):
+        raise TypeError('Expected a tensor or a dict containing a tensor.')
+    return value
 
-    if isinstance(obj, dict):
-        for key in preferred_keys:
-            if key in obj and torch.is_tensor(obj[key]):
-                return obj[key]
 
-        tensor_values = [value for value in obj.values() if torch.is_tensor(value)]
-        if len(tensor_values) == 1:
-            return tensor_values[0]
+@TRANSFORMS.register_module()
+class LoadPastisSampleFromPT(BaseTransform):
+    """Load the complete temporal sequence and its semantic target."""
 
-    raise TypeError(
-        f'Expected {path} to contain a Tensor, or a dict containing one Tensor. '
-        f'Got type: {type(obj)}'
+    _target_cache: Dict[str, torch.Tensor] = {}
+
+    def __init__(
+        self,
+        expected_times: Optional[int] = 12,
+        expected_channels: Sequence[int] = (10, 13),
+        source_ignore_index: int = -1,
+        target_ignore_index: int = 255,
+        to_float32: bool = True,
+    ) -> None:
+        self.expected_times = expected_times
+        self.expected_channels = tuple(int(v) for v in expected_channels)
+        self.source_ignore_index = int(source_ignore_index)
+        self.target_ignore_index = int(target_ignore_index)
+        self.to_float32 = bool(to_float32)
+
+    @classmethod
+    def _load_targets(cls, path: str) -> torch.Tensor:
+        if path not in cls._target_cache:
+            cls._target_cache[path] = _extract_tensor(
+                _torch_load(path),
+                ('targets', 'target', 'labels', 'label', 'masks', 'mask'),
+            )
+        return cls._target_cache[path]
+
+    def transform(self, results: dict) -> dict:
+        image = _extract_tensor(
+            _torch_load(results['img_path']),
+            ('image', 'img', 's2', 'data', 'tensor'),
+        )
+        if image.ndim != 4:
+            raise ValueError(f'Expected image (T,C,H,W), got {tuple(image.shape)}.')
+        if self.expected_times is not None and image.shape[0] != self.expected_times:
+            raise ValueError(
+                f'Expected T={self.expected_times}, got T={image.shape[0]} '
+                f'in {results["img_path"]}.'
+            )
+        if image.shape[1] not in self.expected_channels:
+            raise ValueError(
+                f'Expected channels in {self.expected_channels}, got {image.shape[1]}.'
+            )
+        if self.to_float32:
+            image = image.float()
+
+        targets = self._load_targets(results['targets_path'])
+        if targets.ndim != 3:
+            raise ValueError(f'Expected targets (N,H,W), got {tuple(targets.shape)}.')
+        target = targets[int(results['target_index'])].long().clone()
+        target[target == self.source_ignore_index] = self.target_ignore_index
+
+        height, width = map(int, image.shape[-2:])
+        if tuple(target.shape[-2:]) != (height, width):
+            raise ValueError(
+                f'Image/target shape mismatch: {(height, width)} vs '
+                f'{tuple(target.shape[-2:])}.'
+            )
+
+        results['img'] = image.contiguous()
+        results['gt_seg_map'] = target.contiguous()
+        results['source_shape'] = (height, width)
+        results['ori_shape'] = (height, width)
+        results['img_shape'] = (height, width)
+        results['pad_shape'] = (height, width)
+        results['num_times'] = int(image.shape[0])
+        results['num_channels'] = int(image.shape[1])
+        results['seg_fields'] = ['gt_seg_map']
+        return results
+
+
+@TRANSFORMS.register_module()
+class PastisResize(BaseTransform):
+    """Resize every time step with bilinear interpolation and mask by nearest."""
+
+    def __init__(self, size: Optional[Sequence[int]] = None) -> None:
+        if size is None:
+            self.size = None
+        elif isinstance(size, int):
+            self.size = (int(size), int(size))
+        elif len(size) == 2:
+            self.size = (int(size[0]), int(size[1]))
+        else:
+            raise ValueError('size must be None, an int, or (height, width).')
+
+    def transform(self, results: dict) -> dict:
+        if self.size is None:
+            return results
+        image = results['img']
+        target = results['gt_seg_map']
+        image = F.interpolate(
+            image, size=self.size, mode='bilinear', align_corners=False
+        )
+        target = F.interpolate(
+            target[None, None].float(), size=self.size, mode='nearest'
+        )[0, 0].long()
+        results['img'] = image.contiguous()
+        results['gt_seg_map'] = target.contiguous()
+        # Evaluation uses the resized label, so ori_shape intentionally follows
+        # the resized resolution. The pre-resize size remains in source_shape.
+        results['ori_shape'] = self.size
+        results['img_shape'] = self.size
+        results['pad_shape'] = self.size
+        return results
+
+
+@TRANSFORMS.register_module()
+class NormalizePastisFromJSON(BaseTransform):
+    """Normalize Sentinel-2 data using train-fold statistics from JSON.
+
+    The supplied file contains ten values per fold. They are expanded to the
+    agreed 13-band order with mapping
+    ``[0,0,1,2,3,4,5,6,7,7,8,8,9]``. If an input sample still has ten bands,
+    the same mapping first expands the image itself to thirteen bands.
+    """
+
+    def __init__(
+        self,
+        stats_file: str,
+        folds: Sequence[str] = ('Fold_1', 'Fold_2', 'Fold_3'),
+        channel_map_10_to_13: Sequence[int] = TEN_TO_THIRTEEN,
+        adapt_image_10_to_13: bool = True,
+        eps: float = 1e-6,
+    ) -> None:
+        self.stats_file = str(Path(stats_file).expanduser())
+        self.folds = tuple(str(fold) for fold in folds)
+        self.channel_map = tuple(int(index) for index in channel_map_10_to_13)
+        self.adapt_image_10_to_13 = bool(adapt_image_10_to_13)
+        self.eps = float(eps)
+        self.mean10, self.std10 = self._read_train_statistics()
+        index = torch.tensor(self.channel_map, dtype=torch.long)
+        self.mean13 = self.mean10.index_select(0, index)
+        self.std13 = self.std10.index_select(0, index)
+
+    def _read_train_statistics(self) -> tuple[torch.Tensor, torch.Tensor]:
+        path = Path(self.stats_file).resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f'Normalization JSON not found: {path}')
+        data = json.loads(path.read_text(encoding='utf-8'))
+        means, stds = [], []
+        for fold in self.folds:
+            if fold not in data:
+                raise KeyError(f'{fold!r} not found in {path}.')
+            mean = torch.tensor(data[fold]['mean'], dtype=torch.float32)
+            std = torch.tensor(data[fold]['std'], dtype=torch.float32)
+            if mean.numel() != 10 or std.numel() != 10:
+                raise ValueError(f'{fold} must provide ten mean/std values.')
+            means.append(mean)
+            stds.append(std)
+        # No per-fold pixel counts are available, so use the previously agreed
+        # equal-fold arithmetic mean for both statistics.
+        return torch.stack(means).mean(0), torch.stack(stds).mean(0)
+
+    def transform(self, results: dict) -> dict:
+        image = results['img'].float()
+        channels = int(image.shape[1])
+        if channels == 10 and self.adapt_image_10_to_13:
+            index = torch.tensor(self.channel_map, device=image.device)
+            image = image.index_select(1, index)
+            channels = 13
+        if channels == 13:
+            mean, std = self.mean13, self.std13
+        elif channels == 10:
+            mean, std = self.mean10, self.std10
+        else:
+            raise ValueError(f'Normalization supports 10 or 13 channels, got {channels}.')
+        mean = mean.to(image.device).view(1, channels, 1, 1)
+        std = std.to(image.device).clamp_min(self.eps).view(1, channels, 1, 1)
+        results['img'] = ((image - mean) / std).contiguous()
+        results['num_channels'] = channels
+        results['norm_stats_file'] = str(Path(self.stats_file).resolve())
+        results['norm_folds'] = self.folds
+        return results
+
+
+@TRANSFORMS.register_module()
+class PastisPackSegInputs(BaseTransform):
+    """Pack a temporal tensor without converting it to HWC."""
+
+    META_KEYS = (
+        'img_path', 'targets_path', 'img_id', 'split', 'target_index',
+        'source_shape', 'ori_shape', 'img_shape', 'pad_shape',
+        'num_times', 'num_channels', 'norm_stats_file', 'norm_folds',
+        'reduce_zero_label',
     )
 
+    def __init__(self, meta_keys: Optional[Sequence[str]] = None) -> None:
+        self.meta_keys = tuple(meta_keys) if meta_keys is not None else self.META_KEYS
 
-@_register_transform
-class LoadPastisSampleFromPT(BaseTransform):
-    """Load one PASTIS S2 tensor and its segmentation target from .pt files.
-
-    Input image shape:
-        T x C x H x W, normally 12 x 13 x 64 x 64.
-
-    Output image shape by default:
-        C x H x W, because temporal_reduce='mean'.
-
-    Important:
-        DINOv3 ViT for Sentinel-2 normally expects a static 13-channel image.
-        Therefore this loader reduces the 12 monthly images to one 13-channel
-        image by default. You can change temporal_reduce if needed.
-    """
-
-    def __init__(
-        self,
-        temporal_reduce: str = 'mean',
-        time_index: Optional[int] = None,
-        to_float32: bool = True,
-        img_scale_factor: Optional[float] = None,
-        mean: Optional[Sequence[float]] = None,
-        std: Optional[Sequence[float]] = None,
-        source_ignore_index: int = -1,
-        target_ignore_index: Optional[int] = 255,
-        cache_targets: bool = True,
-    ) -> None:
-        self.temporal_reduce = temporal_reduce
-        self.time_index = time_index
-        self.to_float32 = to_float32
-        self.img_scale_factor = img_scale_factor
-        self.mean = mean
-        self.std = std
-        self.source_ignore_index = source_ignore_index
-        self.target_ignore_index = target_ignore_index
-        self.cache_targets = cache_targets
-        self._targets_cache: Dict[str, torch.Tensor] = {}
-
-    def _reduce_temporal(self, img: torch.Tensor) -> torch.Tensor:
-        if img.ndim == 3:
-            return img
-
-        if img.ndim != 4:
-            raise ValueError(
-                f'Image tensor must have shape T x C x H x W or C x H x W, '
-                f'but got shape {tuple(img.shape)}.'
-            )
-
-        mode = self.temporal_reduce.lower()
-        if mode == 'mean':
-            return img.float().mean(dim=0)
-        if mode == 'median':
-            return img.float().median(dim=0).values
-        if mode == 'max':
-            return img.max(dim=0).values
-        if mode == 'min':
-            return img.min(dim=0).values
-        if mode == 'first':
-            return img[0]
-        if mode == 'last':
-            return img[-1]
-        if mode == 'index':
-            if self.time_index is None:
-                raise ValueError("time_index must be set when temporal_reduce='index'.")
-            return img[self.time_index]
-        if mode == 'flatten':
-            # Usually NOT recommended for DINOv3 SAT checkpoints, because it
-            # changes input channels from 13 to T*13.
-            t, c, h, w = img.shape
-            return img.reshape(t * c, h, w)
-
-        raise ValueError(
-            f'Unsupported temporal_reduce={self.temporal_reduce!r}. Supported values: '
-            "'mean', 'median', 'max', 'min', 'first', 'last', 'index', 'flatten'."
-        )
-
-    def _load_targets(self, targets_path: str) -> torch.Tensor:
-        if self.cache_targets and targets_path in self._targets_cache:
-            return self._targets_cache[targets_path]
-
-        targets_obj = _torch_load(targets_path)
-        targets = _extract_tensor(
-            targets_obj,
-            preferred_keys=('targets', 'target', 'mask', 'masks', 'labels', 'label'),
-            path=targets_path,
-        )
-
-        if self.cache_targets:
-            self._targets_cache[targets_path] = targets
-        return targets
-
-    def _normalize(self, img: torch.Tensor) -> torch.Tensor:
-        if self.img_scale_factor is not None:
-            img = img * float(self.img_scale_factor)
-
-        if self.mean is not None:
-            mean = torch.as_tensor(self.mean, dtype=img.dtype, device=img.device).view(-1, 1, 1)
-            if mean.numel() != img.shape[0]:
-                raise ValueError(f'mean has {mean.numel()} values, but image has {img.shape[0]} channels.')
-            img = img - mean
-
-        if self.std is not None:
-            std = torch.as_tensor(self.std, dtype=img.dtype, device=img.device).view(-1, 1, 1)
-            if std.numel() != img.shape[0]:
-                raise ValueError(f'std has {std.numel()} values, but image has {img.shape[0]} channels.')
-            img = img / std.clamp_min(1e-12)
-
-        return img
-
-    def transform(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        img_path = results['img_path']
-        targets_path = results['targets_path']
-        target_index = int(results['target_index'])
-
-        img_obj = _torch_load(img_path)
-        img = _extract_tensor(
-            img_obj,
-            preferred_keys=('img', 'image', 's2', 's2_image', 'data'),
-            path=img_path,
-        )
-
-        img = self._reduce_temporal(img)
-        if self.to_float32:
-            img = img.float()
-        img = self._normalize(img).contiguous()
-
-        if img.ndim != 3:
-            raise ValueError(
-                f'After temporal reduction, image must be C x H x W, '
-                f'but got shape {tuple(img.shape)}.'
-            )
-
-        targets = self._load_targets(targets_path)
-        seg = targets[target_index]
-
-        if seg.ndim == 3 and seg.shape[0] == 1:
-            seg = seg[0]
-        elif seg.ndim == 3 and seg.shape[-1] == 1:
-            seg = seg[..., 0]
-
-        if seg.ndim != 2:
-            raise ValueError(
-                f'One target should have shape H x W or 1 x H x W, '
-                f'but got shape {tuple(seg.shape)} for target index {target_index}.'
-            )
-
-        seg = seg.long().contiguous()
-
-        # PASTIS original ignore label is -1. MMSeg defaults commonly use 255
-        # as ignore_index, so the default maps -1 -> 255. Set
-        # target_ignore_index=-1 in config if you want to keep -1.
-        if self.target_ignore_index is not None and self.target_ignore_index != self.source_ignore_index:
-            seg = torch.where(
-                seg == self.source_ignore_index,
-                torch.as_tensor(self.target_ignore_index, dtype=seg.dtype, device=seg.device),
-                seg,
-            )
-
-        h, w = img.shape[-2:]
-        results['img'] = img
-        results['gt_seg_map'] = seg
-        results['ori_shape'] = (h, w)
-        results['img_shape'] = (h, w)
-        results['pad_shape'] = (h, w)
-        results['seg_fields'] = ['gt_seg_map']
-        results['num_channels'] = int(img.shape[0])
-        return results
-
-
-@_register_transform
-class PastisResize(BaseTransform):
-    """Resize image and segmentation mask.
-
-    This is the reserved resize interface requested for PASTIS.
-
-    Args:
-        size: Target size as (height, width). If None, no fixed-size resize.
-        scale_factor: Optional scale factor. Used only when size is None.
-    """
-
-    def __init__(
-        self,
-        size: Optional[Union[int, Tuple[int, int]]] = None,
-        scale_factor: Optional[float] = None,
-        interpolation: str = 'bilinear',
-        align_corners: bool = False,
-    ) -> None:
-        if size is not None and scale_factor is not None:
-            raise ValueError('Only one of size and scale_factor can be set.')
-
-        if isinstance(size, int):
-            size = (size, size)
-
-        self.size = size
-        self.scale_factor = scale_factor
-        self.interpolation = interpolation
-        self.align_corners = align_corners
-
-    def _target_size(self, h: int, w: int) -> Optional[Tuple[int, int]]:
-        if self.size is not None:
-            return int(self.size[0]), int(self.size[1])
-
-        if self.scale_factor is not None:
-            return max(1, round(h * self.scale_factor)), max(1, round(w * self.scale_factor))
-
-        return None
-
-    def _interpolate_img(self, img: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
-        kwargs = dict(size=size, mode=self.interpolation)
-        if self.interpolation in ('linear', 'bilinear', 'bicubic', 'trilinear'):
-            kwargs['align_corners'] = self.align_corners
-        return F.interpolate(img.unsqueeze(0), **kwargs).squeeze(0)
-
-    def transform(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        img = results['img']
-        seg = results['gt_seg_map']
-
-        if img.ndim != 3:
-            raise ValueError(f'PastisResize expects img as C x H x W, got {tuple(img.shape)}.')
-        if seg.ndim != 2:
-            raise ValueError(f'PastisResize expects gt_seg_map as H x W, got {tuple(seg.shape)}.')
-
-        old_h, old_w = img.shape[-2:]
-        target_size = self._target_size(old_h, old_w)
-        if target_size is None:
-            return results
-
-        img = self._interpolate_img(img, target_size).contiguous()
-
-        seg_dtype = seg.dtype
-        seg = F.interpolate(
-            seg.float().unsqueeze(0).unsqueeze(0),
-            size=target_size,
-            mode='nearest',
-        ).squeeze(0).squeeze(0).to(seg_dtype).contiguous()
-
-        new_h, new_w = target_size
-        results['img'] = img
-        results['gt_seg_map'] = seg
-        results['img_shape'] = (new_h, new_w)
-        results['pad_shape'] = (new_h, new_w)
-        results['scale_factor'] = (new_w / old_w, new_h / old_h)
-        return results
-
-
-@_register_transform
-class PastisPackSegInputs(BaseTransform):
-    """Pack PASTIS tensors into MMSegmentation model input format."""
-
-    def __init__(
-        self,
-        meta_keys: Sequence[str] = (
-            'img_path',
-            'targets_path',
-            'img_id',
-            'sample_idx',
-            'target_index',
-            'split',
-            'ori_shape',
-            'img_shape',
-            'pad_shape',
-            'scale_factor',
-            'num_channels',
-        ),
-    ) -> None:
-        self.meta_keys = tuple(meta_keys)
-
-    def transform(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        img = results['img']
-        seg = results['gt_seg_map']
-
-        if not torch.is_tensor(img):
-            img = torch.as_tensor(img)
-        if not torch.is_tensor(seg):
-            seg = torch.as_tensor(seg)
-
-        if img.ndim != 3:
-            raise ValueError(f'inputs must be C x H x W, got {tuple(img.shape)}.')
-        if seg.ndim != 2:
-            raise ValueError(f'gt_seg_map must be H x W, got {tuple(seg.shape)}.')
+    def transform(self, results: dict) -> dict:
+        image = results['img']
+        target = results['gt_seg_map']
+        if not torch.is_tensor(image) or image.ndim != 4:
+            raise ValueError('PastisPackSegInputs expects image tensor (T,C,H,W).')
+        if not torch.is_tensor(target) or target.ndim != 2:
+            raise ValueError('PastisPackSegInputs expects target tensor (H,W).')
 
         data_sample = SegDataSample()
-        data_sample.gt_sem_seg = PixelData(data=seg.long().unsqueeze(0).contiguous())
-
+        data_sample.gt_sem_seg = PixelData(data=target[None].long().contiguous())
         metainfo = {key: results[key] for key in self.meta_keys if key in results}
         data_sample.set_metainfo(metainfo)
-
-        return dict(
-            inputs=img.float().contiguous(),
-            data_samples=data_sample,
-        )
+        return dict(inputs=image.float().contiguous(), data_samples=data_sample)

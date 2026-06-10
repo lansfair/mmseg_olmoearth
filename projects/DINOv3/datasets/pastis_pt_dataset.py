@@ -1,219 +1,114 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import List, Sequence
 
 import torch
-from mmengine.dataset import BaseDataset
-
-
-def _build_palette(num_classes: int = 19) -> List[List[int]]:
-    """Build a deterministic generic palette.
-
-    Replace this palette later if you have the official PASTIS class colors.
-    """
-    palette = []
-    for i in range(num_classes):
-        palette.append([
-            (37 * i + 17) % 256,
-            (67 * i + 29) % 256,
-            (97 * i + 43) % 256,
-        ])
-    return palette
-
-
-def _numeric_sort_key(path: Path):
-    try:
-        return int(path.stem)
-    except ValueError:
-        return path.stem
+from mmseg.datasets import BaseSegDataset
+from mmseg.registry import DATASETS
 
 
 def _torch_load(path: Path):
-    """torch.load wrapper compatible with different PyTorch versions."""
     try:
-        return torch.load(str(path), map_location='cpu', weights_only=True)
+        return torch.load(str(path), map_location='cpu', weights_only=False)
     except TypeError:
         return torch.load(str(path), map_location='cpu')
 
 
-def _collect_registries():
-    registries = []
-    try:
-        from mmseg.registry import DATASETS as MMSEG_DATASETS
-        registries.append(MMSEG_DATASETS)
-    except Exception:
-        pass
-
-    # Extra registration to the root MMEngine registry makes the class more
-    # tolerant when default_scope is not set correctly.
-    try:
-        from mmengine.registry import DATASETS as MMENGINE_DATASETS
-        registries.append(MMENGINE_DATASETS)
-    except Exception:
-        pass
-
-    unique = []
-    seen = set()
-    for registry in registries:
-        if id(registry) not in seen:
-            unique.append(registry)
-            seen.add(id(registry))
-    return unique
+def _extract_tensor(value, keys: Sequence[str]) -> torch.Tensor:
+    if isinstance(value, dict):
+        for key in keys:
+            if torch.is_tensor(value.get(key)):
+                value = value[key]
+                break
+    if not torch.is_tensor(value):
+        raise TypeError('Expected a tensor or a dict containing a tensor.')
+    return value
 
 
-def _register_dataset(cls):
-    for registry in _collect_registries():
-        registry.register_module(module=cls, force=True)
-    return cls
+@DATASETS.register_module()
+class PastisPTDataset(BaseSegDataset):
+    """PASTIS split stored as ``s2_images/*.pt`` and one ``targets.pt``.
 
-
-_CLASSES = tuple(f'class_{i}' for i in range(19))
-
-
-@_register_dataset
-class PastisPtDataset(BaseDataset):
-    """PASTIS semantic segmentation dataset stored as .pt tensors.
-
-    Expected data layout:
-
-        pastis_dataset_64/
-        ├── pastis_r_train/
-        │   ├── s2_images/
-        │   │   ├── 0.pt
-        │   │   ├── 1.pt
-        │   │   └── ...
-        │   └── targets.pt
-        ├── pastis_r_val/
-        │   ├── s2_images/
-        │   └── targets.pt
-        └── pastis_r_test/
-            ├── s2_images/
-            └── targets.pt
-
-    Each image file is expected to be shaped as:
-        T x C x H x W, normally 12 x 13 x 64 x 64.
-
-    Each targets.pt is expected to be shaped as:
-        N x H x W.
-
-    Labels:
-        0..18 are valid classes.
-        -1 is ignored in the original target file.
+    Expected sample shape: ``(12, 13, H, W)``. Target shape: ``(N, H, W)``.
+    File ``s2_images/<index>.pt`` is paired with ``targets[index]``.
     """
 
     METAINFO = dict(
-        classes=_CLASSES,
-        palette=_build_palette(len(_CLASSES)),
+        classes=tuple(f'class_{index}' for index in range(19)),
+        palette=[
+            [0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0],
+            [0, 0, 128], [128, 0, 128], [0, 128, 128], [128, 128, 128],
+            [64, 0, 0], [192, 0, 0], [64, 128, 0], [192, 128, 0],
+            [64, 0, 128], [192, 0, 128], [64, 128, 128], [192, 128, 128],
+            [0, 64, 0], [128, 64, 0], [0, 192, 0],
+        ],
     )
 
     def __init__(
         self,
         data_root: str,
         split: str,
-        pipeline: Sequence[Dict[str, Any]],
-        image_dir: str = 's2_images',
-        targets_file: str = 'targets.pt',
-        file_suffix: str = '.pt',
-        target_index_from_filename: bool = True,
-        validate_files: bool = True,
-        metainfo: Optional[Dict[str, Any]] = None,
-        serialize_data: bool = False,
+        img_dir_name: str = 's2_images',
+        target_filename: str = 'targets.pt',
         **kwargs,
     ) -> None:
-        self.split = split
-        self.image_dir = image_dir
-        self.targets_file = targets_file
-        self.file_suffix = file_suffix
-        self.target_index_from_filename = target_index_from_filename
-        self.validate_files = validate_files
-
+        self.split_dir = str(split)
+        self.img_dir_name = str(img_dir_name)
+        self.target_filename = str(target_filename)
         super().__init__(
-            ann_file='',
-            metainfo=metainfo,
             data_root=data_root,
-            data_prefix=dict(),
-            pipeline=pipeline,
-            serialize_data=serialize_data,
+            img_suffix='.pt',
+            seg_map_suffix='.pt',
+            reduce_zero_label=False,
             **kwargs,
         )
 
-    def _resolve_targets_path(self, split_dir: Path) -> Path:
-        targets_path = split_dir / self.targets_file
+    @staticmethod
+    def _sort_key(path: Path):
+        try:
+            return (0, int(path.stem))
+        except ValueError:
+            return (1, path.stem)
 
-        # Tolerate an accidentally nested targets.pt, because dataset sketches
-        # sometimes place it under s2_images by indentation mistake.
+    def load_data_list(self) -> List[dict]:
+        split_root = Path(self.data_root).expanduser().resolve() / self.split_dir
+        image_root = split_root / self.img_dir_name
+        targets_path = split_root / self.target_filename
+        if not image_root.is_dir():
+            raise FileNotFoundError(f'Image directory not found: {image_root}')
         if not targets_path.is_file():
-            alt_path = split_dir / self.image_dir / self.targets_file
-            if alt_path.is_file():
-                targets_path = alt_path
+            raise FileNotFoundError(f'Target file not found: {targets_path}')
 
-        if not targets_path.is_file():
-            raise FileNotFoundError(
-                f'Cannot find targets file. Tried: {split_dir / self.targets_file} '
-                f'and {split_dir / self.image_dir / self.targets_file}'
-            )
-        return targets_path
+        targets = _extract_tensor(
+            _torch_load(targets_path),
+            ('targets', 'target', 'labels', 'label', 'masks', 'mask'),
+        )
+        if targets.ndim != 3:
+            raise ValueError(f'Expected targets (N,H,W), got {tuple(targets.shape)}.')
+        num_targets = int(targets.shape[0])
 
-    def load_data_list(self) -> List[Dict[str, Any]]:
-        split_dir = Path(self.data_root) / self.split
-        img_dir = split_dir / self.image_dir
-
-        if not split_dir.is_dir():
-            raise FileNotFoundError(f'Split directory not found: {split_dir}')
-        if not img_dir.is_dir():
-            raise FileNotFoundError(f'Image directory not found: {img_dir}')
-
-        image_paths = sorted(img_dir.glob(f'*{self.file_suffix}'), key=_numeric_sort_key)
-        if len(image_paths) == 0:
-            raise FileNotFoundError(
-                f'No image files with suffix {self.file_suffix!r} found in {img_dir}'
-            )
-
-        targets_path = self._resolve_targets_path(split_dir)
-
-        target_count = None
-        if self.validate_files:
-            targets = _torch_load(targets_path)
-            if isinstance(targets, dict):
-                # Common fallback if someone saved {'targets': tensor}.
-                for key in ('targets', 'target', 'mask', 'masks', 'labels', 'label'):
-                    if key in targets:
-                        targets = targets[key]
-                        break
-            if not torch.is_tensor(targets):
-                raise TypeError(f'targets.pt must contain a Tensor or a dict containing a Tensor: {targets_path}')
-            if targets.ndim not in (3, 4):
-                raise ValueError(
-                    f'targets.pt should have shape N x H x W or N x 1 x H x W, '
-                    f'but got shape {tuple(targets.shape)} from {targets_path}'
-                )
-            target_count = int(targets.shape[0])
+        image_paths = sorted(image_root.glob('*.pt'), key=self._sort_key)
+        if not image_paths:
+            raise FileNotFoundError(f'No .pt images found in: {image_root}')
 
         data_list = []
-        for ordinal, img_path in enumerate(image_paths):
-            if self.target_index_from_filename:
-                try:
-                    target_index = int(img_path.stem)
-                except ValueError as exc:
-                    raise ValueError(
-                        f'target_index_from_filename=True requires numeric image names, '
-                        f'but got {img_path.name}'
-                    ) from exc
-            else:
-                target_index = ordinal
-
-            if target_count is not None and target_index >= target_count:
+        for image_path in image_paths:
+            try:
+                index = int(image_path.stem)
+            except ValueError as exc:
+                raise ValueError(f'Image filename must be an integer: {image_path.name}') from exc
+            if not 0 <= index < num_targets:
                 raise IndexError(
-                    f'Image {img_path.name} maps to target index {target_index}, '
-                    f'but {targets_path} contains only {target_count} targets.'
+                    f'Image index {index} is outside targets range [0, {num_targets - 1}].'
                 )
-
             data_list.append(dict(
-                img_path=str(img_path),
+                img_path=str(image_path),
                 targets_path=str(targets_path),
-                sample_idx=ordinal,
-                target_index=target_index,
-                img_id=img_path.stem,
-                split=self.split,
+                target_index=index,
+                img_id=image_path.stem,
+                split=self.split_dir,
+                seg_fields=[],
+                reduce_zero_label=False,
             ))
-
         return data_list
