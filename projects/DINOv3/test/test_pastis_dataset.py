@@ -1,233 +1,142 @@
-import argparse
-import sys
+"""Smoke test for DINOv3/datasets PASTIS loading.
+
+Run from the MMSegmentation root, for example:
+
+    python projects/DINOv3/datasets/test_pastis_dataset.py \
+        --data-root data/pastis_dataset_64 \
+        --split pastis_r_train \
+        --resize 128 128
+
+You can also run a self-contained fake-data test:
+
+    python projects/DINOv3/datasets/test_pastis_dataset.py --make-fake --resize 128 128
+"""
+
 from pathlib import Path
+import argparse
+import shutil
+import sys
+import tempfile
 
 import torch
 
 
-def parse_int_list(text):
-    if text is None or text == '' or text.lower() == 'none':
-        return None
+def _add_import_paths():
+    this_file = Path(__file__).resolve()
+    project_dir = this_file.parents[1]      # .../projects/DINOv3
+    projects_dir = project_dir.parent       # .../projects
+    mmseg_root = projects_dir.parent        # .../mmsegmentation
 
-    return tuple(int(item.strip()) for item in text.split(',') if item.strip())
-
-
-def add_python_paths(project_root, mmseg_root):
-    for path in (mmseg_root, project_root):
-        path = str(Path(path).resolve())
-        if path not in sys.path:
-            sys.path.insert(0, path)
+    for path in (mmseg_root, project_dir):
+        path_str = str(path)
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
 
 
-def import_project_modules():
+def _import_custom_modules():
+    _add_import_paths()
+
     try:
         import projects.DINOv3.datasets  # noqa: F401
-        import mmseg.datasets.transforms  # noqa: F401
+        print('[OK] Imported projects.DINOv3.datasets')
+        return
     except Exception as exc:
-        raise ImportError(
-            'Failed to import project dataset modules. Please run this script '
-            'inside the MMSegmentation repository, or pass --mmseg-root and '
-            '--project-root explicitly.'
+        print(f'[WARN] Could not import projects.DINOv3.datasets: {exc}')
+
+    try:
+        import datasets  # noqa: F401
+        print('[OK] Imported local datasets package')
+        return
+    except Exception as exc:
+        raise RuntimeError(
+            'Failed to import custom dataset modules. Make sure this file is under '
+            'mmsegmentation/projects/DINOv3/datasets/.'
         ) from exc
 
 
-def build_dataset(args):
-    from mmseg.registry import DATASETS
+def _make_fake_pastis(root: Path, split: str, num_samples: int = 4):
+    split_dir = root / split
+    image_dir = split_dir / 's2_images'
+    image_dir.mkdir(parents=True, exist_ok=True)
 
-    loader_cfg = dict(
-        type='LoadPastisSampleFromPT',
-        temporal_mode=args.temporal_mode,
-        time_index=args.time_index,
-        band_indices=parse_int_list(args.band_indices),
-        resize_size=None if args.resize_size is None else tuple(args.resize_size),
-        ignore_index=args.ignore_index,
-        target_ignore_index=args.target_ignore_index,
-        to_float32=True,
-    )
+    targets = torch.randint(low=0, high=19, size=(num_samples, 64, 64), dtype=torch.long)
+    targets[0, :8, :8] = -1
 
-    pipeline = [
-        loader_cfg,
-        dict(
-            type='PackSegInputs',
-            meta_keys=(
-                'img_path',
-                'seg_map_path',
-                'ori_shape',
-                'img_shape',
-                'pad_shape',
-                'scale_factor',
-                'reduce_zero_label',
-                'sample_idx',
-                'split',
-                'num_channels',
-            ),
-        ),
-    ]
+    for idx in range(num_samples):
+        img = torch.rand(12, 13, 64, 64)
+        torch.save(img, image_dir / f'{idx}.pt')
 
-    dataset_cfg = dict(
-        type='PASTISDataset64',
-        data_root=args.data_root,
-        split=args.split,
-        pipeline=pipeline,
-        ignore_index=args.ignore_index,
-    )
+    torch.save(targets, split_dir / 'targets.pt')
 
-    print('[Test] Dataset config:')
-    print(dataset_cfg)
 
-    dataset = DATASETS.build(dataset_cfg)
-    return dataset
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data-root', default=None, help='Path to pastis_dataset_64.')
+    parser.add_argument('--split', default='pastis_r_train')
+    parser.add_argument('--resize', nargs=2, type=int, default=None, metavar=('H', 'W'))
+    parser.add_argument('--temporal-reduce', default='mean')
+    parser.add_argument('--make-fake', action='store_true')
+    parser.add_argument('--keep-minus-one-ignore', action='store_true',
+                        help='Keep original -1 ignore index instead of mapping it to 255.')
+    return parser.parse_args()
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Test PASTISDataset64 loading for MMSegmentation.'
-    )
+    args = parse_args()
+    _import_custom_modules()
 
-    parser.add_argument(
-        '--data-root',
-        required=True,
-        help='Path to pastis_dataset_64.'
-    )
+    from mmseg.registry import DATASETS
 
-    parser.add_argument(
-        '--split',
-        default='train',
-        choices=['train', 'val', 'test'],
-        help='Dataset split to test.'
-    )
-
-    parser.add_argument(
-        '--project-root',
-        default=None,
-        help=(
-            'Path to mmsegmentation/projects/DINOv3. '
-            'If omitted, infer from this file.'
-        )
-    )
-
-    parser.add_argument(
-        '--mmseg-root',
-        default=None,
-        help=(
-            'Path to MMSegmentation root. '
-            'If omitted, infer from projects/DINOv3/test.'
-        )
-    )
-
-    parser.add_argument(
-        '--temporal-mode',
-        default='mean',
-        choices=['mean', 'select', 'max', 'flatten'],
-        help='How to reduce the 12-month temporal dimension.'
-    )
-
-    parser.add_argument(
-        '--time-index',
-        type=int,
-        default=0,
-        help='Month index used when --temporal-mode select.'
-    )
-
-    parser.add_argument(
-        '--band-indices',
-        default=None,
-        help=(
-            'Comma-separated band indices to keep after 13-band construction. '
-            'Example: "3,2,1" keeps B4/B3/B2 as RGB-like input. '
-            'Default keeps all 13 bands.'
-        )
-    )
-
-    parser.add_argument(
-        '--resize-size',
-        type=int,
-        nargs=2,
-        default=None,
-        metavar=('HEIGHT', 'WIDTH'),
-        help='Optional resize output size, e.g. --resize-size 224 224.'
-    )
-
-    parser.add_argument(
-        '--ignore-index',
-        type=int,
-        default=-1,
-        help='Ignore label value in targets.pt.'
-    )
-
-    parser.add_argument(
-        '--target-ignore-index',
-        type=int,
-        default=None,
-        help=(
-            'Optional value to replace ignore_index with, '
-            'e.g. 255 for default MMSeg configs.'
-        )
-    )
-
-    parser.add_argument(
-        '--num-samples',
-        type=int,
-        default=3,
-        help='Number of samples to inspect.'
-    )
-
-    args = parser.parse_args()
-
-    this_file = Path(__file__).resolve()
-
-    if args.project_root is not None:
-        project_root = Path(args.project_root).expanduser().resolve()
+    tmp_dir = None
+    if args.make_fake:
+        tmp_dir = Path(tempfile.mkdtemp(prefix='fake_pastis_'))
+        data_root = tmp_dir / 'pastis_dataset_64'
+        _make_fake_pastis(data_root, args.split)
+        print(f'[OK] Created fake dataset at: {data_root}')
     else:
-        project_root = this_file.parents[1]
+        if args.data_root is None:
+            raise ValueError('Please pass --data-root, or use --make-fake for a self-contained test.')
+        data_root = Path(args.data_root)
 
-    if args.mmseg_root is not None:
-        mmseg_root = Path(args.mmseg_root).expanduser().resolve()
-    else:
-        if project_root.parent.name == 'projects':
-            mmseg_root = project_root.parent.parent.resolve()
-        else:
-            mmseg_root = Path.cwd().resolve()
+    pipeline = [
+        dict(
+            type='LoadPastisSampleFromPT',
+            temporal_reduce=args.temporal_reduce,
+            source_ignore_index=-1,
+            target_ignore_index=-1 if args.keep_minus_one_ignore else 255,
+        ),
+    ]
 
-    print(f'[Test] project_root: {project_root}')
-    print(f'[Test] mmseg_root: {mmseg_root}')
-    print(f'[Test] data_root: {Path(args.data_root).expanduser().resolve()}')
+    if args.resize is not None:
+        pipeline.append(dict(type='PastisResize', size=tuple(args.resize)))
 
-    add_python_paths(project_root, mmseg_root)
-    import_project_modules()
+    pipeline.append(dict(type='PastisPackSegInputs'))
 
-    dataset = build_dataset(args)
+    dataset_cfg = dict(
+        type='PastisPtDataset',
+        data_root=str(data_root),
+        split=args.split,
+        pipeline=pipeline,
+    )
 
-    print(f'[Test] Dataset length: {len(dataset)}')
-    print(f'[Test] Metainfo classes: {len(dataset.metainfo.get("classes", []))}')
+    dataset = DATASETS.build(dataset_cfg)
+    print(f'[OK] Dataset built. length={len(dataset)}')
 
-    num_samples = min(args.num_samples, len(dataset))
+    sample = dataset[0]
+    inputs = sample['inputs']
+    data_sample = sample['data_samples']
+    gt = data_sample.gt_sem_seg.data
 
-    for i in range(num_samples):
-        item = dataset[i]
+    print(f'[OK] inputs shape: {tuple(inputs.shape)} dtype={inputs.dtype}')
+    print(f'[OK] gt_sem_seg shape: {tuple(gt.shape)} dtype={gt.dtype}')
+    print(f'[OK] metainfo: {data_sample.metainfo}')
 
-        inputs = item['inputs']
-        data_sample = item['data_samples']
-        gt = data_sample.gt_sem_seg.data
+    unique_values = torch.unique(gt)
+    print(f'[OK] unique label values in sample 0: {unique_values[:30].tolist()}')
 
-        print(f'\n[Test] sample {i}')
-        print(f'  inputs shape: {tuple(inputs.shape)}, dtype: {inputs.dtype}')
-        print(f'  gt shape: {tuple(gt.shape)}, dtype: {gt.dtype}')
-        print(f'  img_path: {data_sample.metainfo.get("img_path")}')
-        print(f'  sample_idx: {data_sample.metainfo.get("sample_idx")}')
-
-        unique_labels = torch.unique(gt.cpu())
-
-        if unique_labels.numel() > 30:
-            shown = unique_labels[:30].tolist()
-            print(
-                f'  unique labels first 30: {shown} ... '
-                f'total={unique_labels.numel()}'
-            )
-        else:
-            print(f'  unique labels: {unique_labels.tolist()}')
-
-    print('\n[Test] PASTIS dataset loading success.')
+    if tmp_dir is not None:
+        shutil.rmtree(tmp_dir)
+        print('[OK] Removed fake dataset.')
 
 
 if __name__ == '__main__':
