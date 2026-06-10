@@ -1,421 +1,234 @@
+import argparse
+import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-import numpy as np
 import torch
-import torch.nn.functional as F
-from mmcv.transforms import BaseTransform
-from mmseg.datasets.basesegdataset import BaseSegDataset
-from mmseg.registry import DATASETS, TRANSFORMS
 
 
-@DATASETS.register_module()
-class PASTISDataset64(BaseSegDataset):
-    """PASTIS semantic segmentation dataset stored as PyTorch .pt files.
+def parse_int_list(text):
+    if text is None or text == '' or text.lower() == 'none':
+        return None
 
-    Expected directory layout:
+    return tuple(int(item.strip()) for item in text.split(',') if item.strip())
 
-        pastis_dataset_64/
-        ├── pastis_r_train/
-        │   ├── s2_images/
-        │   │   ├── 0.pt
-        │   │   ├── 1.pt
-        │   │   └── ...
-        │   └── targets.pt
-        ├── pastis_r_val/
-        │   ├── s2_images/
-        │   └── targets.pt
-        └── pastis_r_test/
-            ├── s2_images/
-            └── targets.pt
 
-    Each image file is expected to contain a tensor shaped (T, C, H, W).
-    For your current preprocessed PASTIS data, this should be (12, 13, 64, 64).
+def add_python_paths(project_root, mmseg_root):
+    for path in (mmseg_root, project_root):
+        path = str(Path(path).resolve())
+        if path not in sys.path:
+            sys.path.insert(0, path)
 
-    The corresponding targets.pt is expected to be shaped (N, H, W).
 
-    Labels:
-        0 to 18: valid classes
-        -1: ignored label
-    """
+def import_project_modules():
+    try:
+        import projects.DINOv3.datasets  # noqa: F401
+        import mmseg.datasets.transforms  # noqa: F401
+    except Exception as exc:
+        raise ImportError(
+            'Failed to import project dataset modules. Please run this script '
+            'inside the MMSegmentation repository, or pass --mmseg-root and '
+            '--project-root explicitly.'
+        ) from exc
 
-    METAINFO = dict(
-        classes=tuple(f'class_{idx}' for idx in range(19)),
-        palette=[
-            [0, 0, 0],
-            [128, 0, 0],
-            [0, 128, 0],
-            [128, 128, 0],
-            [0, 0, 128],
-            [128, 0, 128],
-            [0, 128, 128],
-            [128, 128, 128],
-            [64, 0, 0],
-            [192, 0, 0],
-            [64, 128, 0],
-            [192, 128, 0],
-            [64, 0, 128],
-            [192, 0, 128],
-            [64, 128, 128],
-            [192, 128, 128],
-            [0, 64, 0],
-            [128, 64, 0],
-            [0, 192, 0],
-        ],
-        ignore_index=-1,
+
+def build_dataset(args):
+    from mmseg.registry import DATASETS
+
+    loader_cfg = dict(
+        type='LoadPastisSampleFromPT',
+        temporal_mode=args.temporal_mode,
+        time_index=args.time_index,
+        band_indices=parse_int_list(args.band_indices),
+        resize_size=None if args.resize_size is None else tuple(args.resize_size),
+        ignore_index=args.ignore_index,
+        target_ignore_index=args.target_ignore_index,
+        to_float32=True,
     )
 
-    SPLIT_DIRS = dict(
-        train='pastis_r_train',
-        val='pastis_r_val',
-        test='pastis_r_test',
+    pipeline = [
+        loader_cfg,
+        dict(
+            type='PackSegInputs',
+            meta_keys=(
+                'img_path',
+                'seg_map_path',
+                'ori_shape',
+                'img_shape',
+                'pad_shape',
+                'scale_factor',
+                'reduce_zero_label',
+                'sample_idx',
+                'split',
+                'num_channels',
+            ),
+        ),
+    ]
+
+    dataset_cfg = dict(
+        type='PASTISDataset64',
+        data_root=args.data_root,
+        split=args.split,
+        pipeline=pipeline,
+        ignore_index=args.ignore_index,
     )
 
-    def __init__(
-        self,
-        data_root: str,
-        split: str = 'train',
-        img_dir_name: str = 's2_images',
-        target_filename: str = 'targets.pt',
-        ignore_index: int = -1,
-        **kwargs,
-    ) -> None:
-        if split not in self.SPLIT_DIRS:
-            raise ValueError(
-                f'Unsupported split: {split}. '
-                f'Expected one of {tuple(self.SPLIT_DIRS)}.'
-            )
+    print('[Test] Dataset config:')
+    print(dataset_cfg)
 
-        self.split = split
-        self.img_dir_name = img_dir_name
-        self.target_filename = target_filename
+    dataset = DATASETS.build(dataset_cfg)
+    return dataset
 
-        super().__init__(
-            data_root=data_root,
-            img_suffix='.pt',
-            seg_map_suffix='.pt',
-            reduce_zero_label=False,
-            ignore_index=ignore_index,
-            **kwargs,
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Test PASTISDataset64 loading for MMSegmentation.'
+    )
+
+    parser.add_argument(
+        '--data-root',
+        required=True,
+        help='Path to pastis_dataset_64.'
+    )
+
+    parser.add_argument(
+        '--split',
+        default='train',
+        choices=['train', 'val', 'test'],
+        help='Dataset split to test.'
+    )
+
+    parser.add_argument(
+        '--project-root',
+        default=None,
+        help=(
+            'Path to mmsegmentation/projects/DINOv3. '
+            'If omitted, infer from this file.'
         )
+    )
 
-    @staticmethod
-    def _sort_pt_files(paths: Sequence[Path]) -> List[Path]:
-        def sort_key(path: Path):
-            try:
-                return (0, int(path.stem))
-            except ValueError:
-                return (1, path.stem)
+    parser.add_argument(
+        '--mmseg-root',
+        default=None,
+        help=(
+            'Path to MMSegmentation root. '
+            'If omitted, infer from projects/DINOv3/test.'
+        )
+    )
 
-        return sorted(paths, key=sort_key)
+    parser.add_argument(
+        '--temporal-mode',
+        default='mean',
+        choices=['mean', 'select', 'max', 'flatten'],
+        help='How to reduce the 12-month temporal dimension.'
+    )
 
-    def load_data_list(self) -> List[dict]:
-        data_root = Path(self.data_root).expanduser().resolve()
-        split_root = data_root / self.SPLIT_DIRS[self.split]
-        img_dir = split_root / self.img_dir_name
-        target_path = split_root / self.target_filename
+    parser.add_argument(
+        '--time-index',
+        type=int,
+        default=0,
+        help='Month index used when --temporal-mode select.'
+    )
 
-        if not split_root.is_dir():
-            raise FileNotFoundError(f'PASTIS split directory not found: {split_root}')
+    parser.add_argument(
+        '--band-indices',
+        default=None,
+        help=(
+            'Comma-separated band indices to keep after 13-band construction. '
+            'Example: "3,2,1" keeps B4/B3/B2 as RGB-like input. '
+            'Default keeps all 13 bands.'
+        )
+    )
 
-        if not img_dir.is_dir():
-            raise FileNotFoundError(f'PASTIS image directory not found: {img_dir}')
+    parser.add_argument(
+        '--resize-size',
+        type=int,
+        nargs=2,
+        default=None,
+        metavar=('HEIGHT', 'WIDTH'),
+        help='Optional resize output size, e.g. --resize-size 224 224.'
+    )
 
-        if not target_path.is_file():
-            raise FileNotFoundError(f'PASTIS target file not found: {target_path}')
+    parser.add_argument(
+        '--ignore-index',
+        type=int,
+        default=-1,
+        help='Ignore label value in targets.pt.'
+    )
 
-        targets = torch.load(str(target_path), map_location='cpu')
+    parser.add_argument(
+        '--target-ignore-index',
+        type=int,
+        default=None,
+        help=(
+            'Optional value to replace ignore_index with, '
+            'e.g. 255 for default MMSeg configs.'
+        )
+    )
 
-        if isinstance(targets, dict):
-            for key in ('targets', 'target', 'labels', 'label', 'masks', 'mask'):
-                if key in targets:
-                    targets = targets[key]
-                    break
+    parser.add_argument(
+        '--num-samples',
+        type=int,
+        default=3,
+        help='Number of samples to inspect.'
+    )
 
-        if not torch.is_tensor(targets):
-            raise TypeError(
-                f'Expected {target_path} to contain a tensor or a dict '
-                'containing targets / labels / masks.'
-            )
+    args = parser.parse_args()
 
-        if targets.ndim != 3:
-            raise ValueError(
-                f'Expected targets.pt shape to be (N, H, W), '
-                f'got {tuple(targets.shape)}.'
-            )
+    this_file = Path(__file__).resolve()
 
-        num_targets = int(targets.shape[0])
-        image_paths = self._sort_pt_files(list(img_dir.glob('*.pt')))
+    if args.project_root is not None:
+        project_root = Path(args.project_root).expanduser().resolve()
+    else:
+        project_root = this_file.parents[1]
 
-        if len(image_paths) == 0:
-            raise FileNotFoundError(f'No .pt image files found in: {img_dir}')
+    if args.mmseg_root is not None:
+        mmseg_root = Path(args.mmseg_root).expanduser().resolve()
+    else:
+        if project_root.parent.name == 'projects':
+            mmseg_root = project_root.parent.parent.resolve()
+        else:
+            mmseg_root = Path.cwd().resolve()
 
-        data_list = []
+    print(f'[Test] project_root: {project_root}')
+    print(f'[Test] mmseg_root: {mmseg_root}')
+    print(f'[Test] data_root: {Path(args.data_root).expanduser().resolve()}')
 
-        for image_path in image_paths:
-            try:
-                sample_idx = int(image_path.stem)
-            except ValueError as exc:
-                raise ValueError(
-                    f'Image file name must be an integer index, '
-                    f'got: {image_path.name}'
-                ) from exc
+    add_python_paths(project_root, mmseg_root)
+    import_project_modules()
 
-            if sample_idx < 0 or sample_idx >= num_targets:
-                raise IndexError(
-                    f'Image index {sample_idx} from {image_path.name} is outside '
-                    f'target range [0, {num_targets - 1}].'
-                )
+    dataset = build_dataset(args)
 
-            data_list.append(
-                dict(
-                    img_path=str(image_path),
-                    seg_map_path=str(target_path),
-                    sample_idx=sample_idx,
-                    split=self.split,
-                    reduce_zero_label=False,
-                    seg_fields=[],
-                )
-            )
+    print(f'[Test] Dataset length: {len(dataset)}')
+    print(f'[Test] Metainfo classes: {len(dataset.metainfo.get("classes", []))}')
 
-        if len(data_list) != num_targets:
+    num_samples = min(args.num_samples, len(dataset))
+
+    for i in range(num_samples):
+        item = dataset[i]
+
+        inputs = item['inputs']
+        data_sample = item['data_samples']
+        gt = data_sample.gt_sem_seg.data
+
+        print(f'\n[Test] sample {i}')
+        print(f'  inputs shape: {tuple(inputs.shape)}, dtype: {inputs.dtype}')
+        print(f'  gt shape: {tuple(gt.shape)}, dtype: {gt.dtype}')
+        print(f'  img_path: {data_sample.metainfo.get("img_path")}')
+        print(f'  sample_idx: {data_sample.metainfo.get("sample_idx")}')
+
+        unique_labels = torch.unique(gt.cpu())
+
+        if unique_labels.numel() > 30:
+            shown = unique_labels[:30].tolist()
             print(
-                '[PASTISDataset64] Warning: number of image files '
-                f'({len(data_list)}) != number of targets ({num_targets}). '
-                'The dataset will use the discovered image files only.'
+                f'  unique labels first 30: {shown} ... '
+                f'total={unique_labels.numel()}'
             )
+        else:
+            print(f'  unique labels: {unique_labels.tolist()}')
 
-        return data_list
+    print('\n[Test] PASTIS dataset loading success.')
 
 
-@TRANSFORMS.register_module()
-class LoadPastisSampleFromPT(BaseTransform):
-    """Load one PASTIS image tensor and its semantic label from .pt files.
-
-    Args:
-        temporal_mode: How to reduce the temporal dimension.
-            Supported values:
-                mean: average 12 months into one image.
-                select: select one month by time_index.
-                max: temporal max.
-                flatten: reshape (T, C, H, W) into (T*C, H, W).
-
-        time_index: Month index used when temporal_mode='select'.
-
-        band_indices: Optional channel indices after your 13-band construction.
-            For RGB-like DINOv3 input from Sentinel-2, use (3, 2, 1),
-            corresponding to B4 / B3 / B2 in your 13-channel order.
-
-            Leave as None to keep all 13 bands.
-
-        resize_size: Optional output spatial size (height, width).
-            Images use bilinear interpolation.
-            Labels use nearest-neighbor interpolation.
-
-        ignore_index: Label value to ignore before optional conversion.
-
-        target_ignore_index: If not None, convert ignore_index labels to this value.
-            Keep None if you want labels to remain -1.
-
-        to_float32: Convert image tensor to float32.
-    """
-
-    _TARGET_CACHE: Dict[str, torch.Tensor] = {}
-
-    def __init__(
-        self,
-        temporal_mode: str = 'mean',
-        time_index: int = 0,
-        band_indices: Optional[Sequence[int]] = None,
-        resize_size: Optional[Union[int, Sequence[int]]] = None,
-        ignore_index: int = -1,
-        target_ignore_index: Optional[int] = None,
-        to_float32: bool = True,
-    ) -> None:
-        valid_modes = {'mean', 'select', 'max', 'flatten'}
-        if temporal_mode not in valid_modes:
-            raise ValueError(
-                f'Unsupported temporal_mode: {temporal_mode}. '
-                f'Expected one of {tuple(sorted(valid_modes))}.'
-            )
-
-        self.temporal_mode = temporal_mode
-        self.time_index = int(time_index)
-        self.band_indices = (
-            None if band_indices is None
-            else tuple(int(i) for i in band_indices)
-        )
-        self.resize_size = self._format_resize_size(resize_size)
-        self.ignore_index = int(ignore_index)
-        self.target_ignore_index = target_ignore_index
-        self.to_float32 = to_float32
-
-    @staticmethod
-    def _format_resize_size(
-        resize_size: Optional[Union[int, Sequence[int]]]
-    ) -> Optional[Tuple[int, int]]:
-        if resize_size is None:
-            return None
-
-        if isinstance(resize_size, int):
-            return (resize_size, resize_size)
-
-        if len(resize_size) != 2:
-            raise ValueError('resize_size must be an int or a sequence of two ints.')
-
-        return (int(resize_size[0]), int(resize_size[1]))
-
-    @staticmethod
-    def _extract_tensor(obj, path: str, kind: str) -> torch.Tensor:
-        if isinstance(obj, dict):
-            candidate_keys = [
-                kind,
-                f'{kind}s',
-                'img',
-                'image',
-                's2',
-                'data',
-                'target',
-                'targets',
-                'label',
-                'labels',
-                'mask',
-                'masks',
-            ]
-
-            for key in candidate_keys:
-                if key in obj:
-                    obj = obj[key]
-                    break
-
-        if not torch.is_tensor(obj):
-            raise TypeError(f'Expected {path} to contain a tensor, got {type(obj)}.')
-
-        return obj
-
-    @classmethod
-    def _load_targets(cls, path: str) -> torch.Tensor:
-        if path not in cls._TARGET_CACHE:
-            obj = torch.load(path, map_location='cpu')
-            cls._TARGET_CACHE[path] = cls._extract_tensor(obj, path, kind='target')
-
-        return cls._TARGET_CACHE[path]
-
-    def _load_image(self, path: str) -> torch.Tensor:
-        obj = torch.load(path, map_location='cpu')
-        image = self._extract_tensor(obj, path, kind='image')
-
-        if image.ndim != 4:
-            raise ValueError(
-                f'Expected image tensor shape (T, C, H, W), '
-                f'got {tuple(image.shape)} from {path}.'
-            )
-
-        if image.shape[1] != 13:
-            raise ValueError(
-                f'Expected 13 Sentinel-2 channels, '
-                f'got {image.shape[1]} from {path}.'
-            )
-
-        if self.to_float32:
-            image = image.float()
-
-        return image
-
-    def _select_bands_4d(self, image: torch.Tensor) -> torch.Tensor:
-        if self.band_indices is None:
-            return image
-
-        return image[:, list(self.band_indices), :, :]
-
-    def _reduce_temporal(self, image: torch.Tensor) -> torch.Tensor:
-        image = self._select_bands_4d(image)
-
-        if self.temporal_mode == 'mean':
-            return image.mean(dim=0)
-
-        if self.temporal_mode == 'max':
-            return image.max(dim=0).values
-
-        if self.temporal_mode == 'select':
-            num_times = int(image.shape[0])
-
-            if self.time_index < 0:
-                time_index = self.time_index + num_times
-            else:
-                time_index = self.time_index
-
-            if time_index < 0 or time_index >= num_times:
-                raise IndexError(
-                    f'time_index={self.time_index} is outside valid range '
-                    f'[-{num_times}, {num_times - 1}].'
-                )
-
-            return image[time_index]
-
-        if self.temporal_mode == 'flatten':
-            t, c, h, w = image.shape
-            return image.reshape(t * c, h, w)
-
-        raise RuntimeError(f'Unexpected temporal_mode: {self.temporal_mode}')
-
-    @staticmethod
-    def _resize_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
-        image = F.interpolate(
-            image.unsqueeze(0),
-            size=size,
-            mode='bilinear',
-            align_corners=False,
-        ).squeeze(0)
-
-        return image
-
-    @staticmethod
-    def _resize_seg(seg: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
-        seg = F.interpolate(
-            seg[None, None].float(),
-            size=size,
-            mode='nearest',
-        )[0, 0]
-
-        return seg.long()
-
-    def transform(self, results: dict) -> dict:
-        image = self._load_image(results['img_path'])
-        image = self._reduce_temporal(image)
-
-        targets = self._load_targets(results['seg_map_path'])
-        sample_idx = int(results['sample_idx'])
-
-        if targets.ndim != 3:
-            raise ValueError(
-                f'Expected targets shape (N, H, W), '
-                f'got {tuple(targets.shape)} from {results["seg_map_path"]}.'
-            )
-
-        seg = targets[sample_idx].long()
-
-        if self.target_ignore_index is not None:
-            seg = seg.clone()
-            seg[seg == self.ignore_index] = int(self.target_ignore_index)
-
-        if self.resize_size is not None:
-            image = self._resize_image(image, self.resize_size)
-            seg = self._resize_seg(seg, self.resize_size)
-
-        # PackSegInputs expects image as HWC ndarray and gt_seg_map as HW ndarray.
-        image_np = image.permute(1, 2, 0).contiguous().cpu().numpy()
-        seg_np = seg.contiguous().cpu().numpy().astype(np.int64)
-
-        h, w = int(image_np.shape[0]), int(image_np.shape[1])
-
-        results['img'] = image_np
-        results['gt_seg_map'] = seg_np
-        results['ori_shape'] = (h, w)
-        results['img_shape'] = (h, w)
-        results['pad_shape'] = (h, w)
-        results['scale_factor'] = 1.0
-        results['seg_fields'] = ['gt_seg_map']
-        results['num_channels'] = int(image_np.shape[2])
-
-        return results
+if __name__ == '__main__':
+    main()
