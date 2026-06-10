@@ -109,6 +109,11 @@ data
 .vscode
 .idea
 
+!projects/dinov3/dinov3-main/dinov3/data/
+!projects/dinov3/dinov3-main/dinov3/data/**
+!projects/dinov3/dinov3-main/dinov3/env/
+!projects/dinov3/dinov3-main/dinov3/env/**
+
 # custom
 *.pkl
 *.pkl.json
