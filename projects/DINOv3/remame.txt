@@ -1,7 +1,6 @@
-python projects/DINOv3/test/test_pastis_dataset.py \
-  --data-root /path/to/pastis_dataset_64 \
-  --split train \
-  --temporal-mode mean
-
-
-KeyError: 'LoadPastisSampleFromPT is not in the mmengine::transform registry. Please check whether the value of `LoadPastisSampleFromPT` is correct or it was registered as expected. More details can be found at https://mmengine.readthedocs.io/en/latest/advanced_tutorials/config.html#import-the-custom-module'
+[OK] Imported projects.DINOv3.datasets
+[OK] Dataset built. length=5820
+[OK] inputs shape: (13, 64, 64) dtype=torch.float32
+[OK] gt_sem_seg shape: (1, 64, 64) dtype=torch.int64
+[OK] metainfo: {'pad_shape': (64, 64), 'img_path': '/mnt/ht2-nas2/wj/PASTIS_evel/dataset/dataset_for_OEF_64/pastis_r_train/s2_images/0.pt', 'img_shape': (64, 64), 'target_index': 0, 'split': 'pastis_r_train', 'ori_shape': (64, 64), 'img_id': '0', 'targets_path': '/mnt/ht2-nas2/wj/PASTIS_evel/dataset/dataset_for_OEF_64/pastis_r_train/targets.pt', 'num_channels': 13, 'sample_idx': 0}
+[OK] unique label values in sample 0: [0, 1, 2, 3, 4, 12, 13, 255]
