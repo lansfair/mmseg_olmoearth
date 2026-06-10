@@ -2,3 +2,6 @@ python projects/DINOv3/test/test_pastis_dataset.py \
   --data-root /path/to/pastis_dataset_64 \
   --split train \
   --temporal-mode mean
+
+
+KeyError: 'LoadPastisSampleFromPT is not in the mmengine::transform registry. Please check whether the value of `LoadPastisSampleFromPT` is correct or it was registered as expected. More details can be found at https://mmengine.readthedocs.io/en/latest/advanced_tutorials/config.html#import-the-custom-module'
