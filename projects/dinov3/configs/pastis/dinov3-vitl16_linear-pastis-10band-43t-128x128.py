@@ -11,6 +11,7 @@ model = dict(
         in_index=0,
         num_classes=19,
         patch_size=16,
+        output_size=128,
         ignore_index=255,
         align_corners=True,
         loss_decode=dict(

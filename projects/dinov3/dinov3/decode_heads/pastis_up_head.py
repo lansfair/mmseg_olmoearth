@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch.nn as nn
+import torch.nn.functional as F
 from mmseg.models.decode_heads.decode_head import BaseDecodeHead
 from mmseg.registry import MODELS
 from torch import Tensor
@@ -50,6 +51,13 @@ class DINOv3PASTISUpHead(BaseDecodeHead):
         x = self.input_proj(x)
         for up in self.ups:
             x = up(x)
+        if x.shape[-2:] != (self.output_size, self.output_size):
+            x = F.interpolate(
+                x,
+                size=(self.output_size, self.output_size),
+                mode="bilinear",
+                align_corners=self.align_corners,
+            )
         return self.cls_seg(x)
 
 
@@ -60,11 +68,13 @@ class DINOv3PASTISLinearHead(BaseDecodeHead):
     def __init__(
         self,
         patch_size: int = 16,
+        output_size: int = 128,
         **kwargs,
     ) -> None:
         kwargs.setdefault("dropout_ratio", 0)
         super().__init__(input_transform=None, **kwargs)
         self.patch_size = patch_size
+        self.output_size = output_size
         self.conv_seg = nn.Identity()
         self.proj = nn.Linear(
             self.in_channels,
@@ -87,9 +97,17 @@ class DINOv3PASTISLinearHead(BaseDecodeHead):
             patch,
         )
         logits = logits.permute(0, 3, 1, 4, 2, 5).contiguous()
-        return logits.view(
+        logits = logits.view(
             bsz,
             self.num_classes,
             height * patch,
             width * patch,
         )
+        if logits.shape[-2:] != (self.output_size, self.output_size):
+            logits = F.interpolate(
+                logits,
+                size=(self.output_size, self.output_size),
+                mode="bilinear",
+                align_corners=self.align_corners,
+            )
+        return logits
