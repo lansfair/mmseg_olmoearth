@@ -21,6 +21,8 @@ test_pipeline = [
     dict(type="PackOlmoEarthSegInputs"),
 ]
 
-train_dataloader = dict(dataset=dict(pipeline=train_pipeline))
-val_dataloader = dict(dataset=dict(pipeline=test_pipeline))
-test_dataloader = dict(dataset=dict(pipeline=test_pipeline))
+train_dataloader = dict(batch_size=8, dataset=dict(pipeline=train_pipeline))
+val_dataloader = dict(batch_size=8, dataset=dict(pipeline=test_pipeline))
+test_dataloader = dict(batch_size=8, dataset=dict(pipeline=test_pipeline))
+
+auto_scale_lr = dict(enable=False, base_batch_size=8)

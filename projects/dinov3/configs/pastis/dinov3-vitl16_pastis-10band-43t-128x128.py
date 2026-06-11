@@ -48,7 +48,7 @@ test_pipeline = [
 ]
 
 train_dataloader = dict(
-    batch_size=16,
+    batch_size=8,
     num_workers=4,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=True),
@@ -64,7 +64,7 @@ train_dataloader = dict(
 )
 
 val_dataloader = dict(
-    batch_size=16,
+    batch_size=8,
     num_workers=4,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
@@ -80,7 +80,7 @@ val_dataloader = dict(
 )
 
 test_dataloader = dict(
-    batch_size=16,
+    batch_size=8,
     num_workers=4,
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
@@ -199,4 +199,4 @@ default_scope = "mmseg"
 log_level = "INFO"
 load_from = None
 resume = False
-auto_scale_lr = dict(enable=False, base_batch_size=16)
+auto_scale_lr = dict(enable=False, base_batch_size=8)
