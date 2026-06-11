@@ -6,10 +6,11 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-data_root = "data/dinov3_pastis_10band_12t_128"
-dinov3_repo_dir = "projects/dinov3/dinov3-main"
+data_root = "/mnt/ht2-nas2/EO_test/wj1/PASTIS_evel/dataset/PASTIS-R"
+dinov3_root = "/mnt/ht2-nas2/EO_test/dataset/dinov3_pretrained"
+dinov3_repo_dir = "/mnt/ht2-nas2/wj/large_tif_infer_test/mmseg_olmoearth/projects/dinov3/dinov3-main"
 dinov3_weights_path = (
-    "checkpoints/dinov3/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
+    f"{dinov3_root}/DINOv3 ViT SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
 )
 work_dir = "./work_dirs/dinov3-vitl16_pastis-10band-12t-128x128"
 
@@ -24,11 +25,6 @@ decoder_channels = 256
 
 train_pipeline = [
     dict(
-        type="LoadOlmoEarthArrays",
-        ignore_index=ignore_index,
-        source_ignore_values=(-1, 19),
-    ),
-    dict(
         type="DINOv3PASTISS2Normalize",
         num_timesteps=num_timesteps,
         num_bands=num_bands,
@@ -38,11 +34,6 @@ train_pipeline = [
 ]
 
 test_pipeline = [
-    dict(
-        type="LoadOlmoEarthArrays",
-        ignore_index=ignore_index,
-        source_ignore_values=(-1, 19),
-    ),
     dict(
         type="DINOv3PASTISS2Normalize",
         num_timesteps=num_timesteps,
@@ -57,10 +48,12 @@ train_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=True),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DINOv3RawPASTISDataset",
         data_root=data_root,
-        ann_file="train.json",
-        dataset_name="pastis",
+        folds=(1, 2, 3),
+        num_timesteps=num_timesteps,
+        num_bands=num_bands,
+        ignore_index=ignore_index,
         pipeline=train_pipeline,
     ),
 )
@@ -71,10 +64,12 @@ val_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DINOv3RawPASTISDataset",
         data_root=data_root,
-        ann_file="val.json",
-        dataset_name="pastis",
+        folds=(4,),
+        num_timesteps=num_timesteps,
+        num_bands=num_bands,
+        ignore_index=ignore_index,
         pipeline=test_pipeline,
     ),
 )
@@ -85,10 +80,12 @@ test_dataloader = dict(
     persistent_workers=True,
     sampler=dict(type="DefaultSampler", shuffle=False),
     dataset=dict(
-        type="OlmoEarthSegDataset",
+        type="DINOv3RawPASTISDataset",
         data_root=data_root,
-        ann_file="test.json",
-        dataset_name="pastis",
+        folds=(5,),
+        num_timesteps=num_timesteps,
+        num_bands=num_bands,
+        ignore_index=ignore_index,
         pipeline=test_pipeline,
     ),
 )
