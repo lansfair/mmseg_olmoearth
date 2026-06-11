@@ -51,3 +51,45 @@ class DINOv3PASTISUpHead(BaseDecodeHead):
         for up in self.ups:
             x = up(x)
         return self.cls_seg(x)
+
+
+@MODELS.register_module()
+class DINOv3PASTISLinearHead(BaseDecodeHead):
+    """Single-linear-layer patch head for DINOv3 PASTIS features."""
+
+    def __init__(
+        self,
+        patch_size: int = 16,
+        **kwargs,
+    ) -> None:
+        kwargs.setdefault("dropout_ratio", 0)
+        super().__init__(input_transform=None, **kwargs)
+        self.patch_size = patch_size
+        self.conv_seg = nn.Identity()
+        self.proj = nn.Linear(
+            self.in_channels,
+            self.num_classes * patch_size * patch_size,
+            bias=True,
+        )
+
+    def forward(self, inputs: Tensor | tuple[Tensor, ...] | list[Tensor]) -> Tensor:
+        x = self._transform_inputs(inputs)
+        bsz, _, height, width = x.shape
+        x = x.permute(0, 2, 3, 1).contiguous()
+        logits = self.proj(x)
+        patch = self.patch_size
+        logits = logits.view(
+            bsz,
+            height,
+            width,
+            self.num_classes,
+            patch,
+            patch,
+        )
+        logits = logits.permute(0, 3, 1, 4, 2, 5).contiguous()
+        return logits.view(
+            bsz,
+            self.num_classes,
+            height * patch,
+            width * patch,
+        )

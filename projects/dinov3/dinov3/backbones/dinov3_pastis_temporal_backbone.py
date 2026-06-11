@@ -216,15 +216,14 @@ class DINOv3PASTISTemporalBackbone(BaseModule):
         return self
 
     def _extract_dinov3_features(self, x: Tensor) -> tuple[list[Tensor], Tensor]:
-        with torch.set_grad_enabled(not self.freeze_dinov3):
-            outputs = self.model.get_intermediate_layers(
-                x,
-                n=self.out_indices,
-                reshape=True,
-                norm=True,
-                return_class_token=False,
-                return_extra_tokens=True,
-            )
+        outputs = self.model.get_intermediate_layers(
+            x,
+            n=self.out_indices,
+            reshape=True,
+            norm=True,
+            return_class_token=False,
+            return_extra_tokens=True,
+        )
         multi_feats = [item[0].contiguous() for item in outputs]
         registers = outputs[-1][1].contiguous()
         return multi_feats, registers
