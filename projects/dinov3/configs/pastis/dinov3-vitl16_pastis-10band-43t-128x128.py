@@ -30,6 +30,7 @@ train_pipeline = [
         num_timesteps=num_timesteps,
         num_bands=num_bands,
         norm_file=pastis_norm_file,
+        folds=(1, 2, 3),
     ),
     dict(type="OlmoEarthRandomFlip", horizontal=True, vertical=True),
     dict(type="PackOlmoEarthSegInputs"),
@@ -41,6 +42,7 @@ test_pipeline = [
         num_timesteps=num_timesteps,
         num_bands=num_bands,
         norm_file=pastis_norm_file,
+        folds=(1, 2, 3),
     ),
     dict(type="PackOlmoEarthSegInputs"),
 ]
