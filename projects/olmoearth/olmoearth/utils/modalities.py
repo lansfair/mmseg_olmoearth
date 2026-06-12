@@ -20,6 +20,8 @@ SENTINEL2_L2A_BANDS = [
 
 SENTINEL1_BANDS = ["vv", "vh"]
 
+RGB_BANDS = ["B", "G", "R", "NIR"]
+
 RGB_TO_SENTINEL2_L2A = {"R": "B04", "G": "B03", "B": "B02"}
 
 
@@ -251,6 +253,11 @@ MODALITY_SPECS = {
         name="sentinel1",
         bands=tuple(SENTINEL1_BANDS),
         sample_field="sentinel1",
+    ),
+    "rgb": ModalitySpec(
+        name="rgb",
+        bands=tuple(RGB_BANDS),
+        sample_field="rgb",
     ),
 }
 

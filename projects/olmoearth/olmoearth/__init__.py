@@ -18,6 +18,7 @@ from .transforms import (
     OlmoEarthPad,
     OlmoEarthRandomFlip,
     PackOlmoEarthSegInputs,
+    RGBToOlmoEarthRGB,
     RGBToOlmoEarthS2,
 )
 
@@ -44,6 +45,7 @@ __all__ = [
     "OlmoEarthRandomFlip",
     "OlmoEarthSegDataset",
     "PackOlmoEarthSegInputs",
+    "RGBToOlmoEarthRGB",
     "OlmoEarthVisualizationHook",
     "RGBToOlmoEarthS2",
     "ValidMaskCrossEntropyLoss",

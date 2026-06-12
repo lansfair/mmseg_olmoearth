@@ -1,0 +1,150 @@
+# Copernicus-FM + PASTIS temporal semantic segmentation config.
+# Edit these paths before training.
+data_root = '/mnt/ht2-nas2/wj/PASTIS_evel/dataset/dataset_for_OEF_128'
+pretrained = '/mnt/ht2-nas2/EO_test/cyz/Copernicus-FM/weights/CopernicusFM_ViT_base_varlang_e100.pth'
+# work_dir = '/work_dirs/linear_probe_freeze10_ft40_50e'
+
+arch = 'base'  # switch to 'large' and update pretrained for large model
+num_classes = 19
+ignore_index = -1
+max_epochs = 50
+batch_size = 2
+num_workers = 4
+base_lr = 0.0001
+crop_size = (128, 128)
+
+custom_imports = dict(
+    imports=['projects.copernicus.pastis.cfm_mmseg'],
+    allow_failed_imports=False)
+
+def _channels(arch):
+    return dict(small=384, base=768, large=1024, huge=1280)[arch]
+
+def _out_indices(arch):
+    return dict(small=(3, 5, 7, 11), base=(3, 5, 7, 11), large=(7, 11, 15, 23), huge=(7, 15, 23, 31))[arch]
+
+cfm_channels = _channels(arch)
+out_indices = _out_indices(arch)
+
+train_pipeline = [
+    dict(type='LoadPastisTemporalImageFromFile', scale_factor=10000.0, channel_map='s2_13'),
+    dict(type='LoadPastisTemporalAnnotations'),
+    dict(type='PackPastisSegInputs'),
+]
+test_pipeline = train_pipeline
+
+train_dataloader = dict(
+    batch_size=batch_size,
+    num_workers=num_workers,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=True),
+    dataset=dict(type='PASTISTemporalPtDataset', data_root=data_root, split='pastis_r_train', pipeline=train_pipeline),
+)
+val_dataloader = dict(
+    batch_size=1,
+    num_workers=num_workers,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(type='PASTISTemporalPtDataset', data_root=data_root, split='pastis_r_valid', pipeline=test_pipeline),
+)
+test_dataloader = dict(
+    batch_size=1,
+    num_workers=num_workers,
+    persistent_workers=True,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(type='PASTISTemporalPtDataset', data_root=data_root, split='pastis_r_test', pipeline=test_pipeline),
+)
+
+val_evaluator = dict(type='IoUMetric', iou_metrics=['mIoU'])
+test_evaluator = val_evaluator
+
+optim_wrapper = dict(
+    type='AmpOptimWrapper',
+    loss_scale='dynamic',
+    optimizer=dict(type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.05),
+    paramwise_cfg=dict(
+        norm_decay_mult=0.0,
+        bias_decay_mult=0.0,
+        custom_keys=dict(
+            pos_embed=dict(decay_mult=0.0),
+            cls_token=dict(decay_mult=0.0),
+            coord_token=dict(decay_mult=0.0),
+            scale_token=dict(decay_mult=0.0),
+            time_token=dict(decay_mult=0.0),
+        ),
+    ),
+    clip_grad=dict(max_norm=1.0, norm_type=2),
+)
+param_scheduler = [
+    dict(type='LinearLR', start_factor=1e-6, by_epoch=False, begin=0, end=500),
+    dict(type='PolyLR', eta_min=0.0, power=1.0, begin=0, end=max_epochs, by_epoch=True),
+]
+
+train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=max_epochs, val_interval=1)
+val_cfg = dict(type='ValLoop')
+test_cfg = dict(type='TestLoop')
+
+default_scope = 'mmseg'
+default_hooks = dict(
+    timer=dict(type='IterTimerHook'),
+    logger=dict(type='LoggerHook', interval=50, log_metric_by_epoch=True),
+    param_scheduler=dict(type='ParamSchedulerHook'),
+    checkpoint=dict(type='CheckpointHook', by_epoch=True, interval=1, save_best='mIoU', rule='greater', max_keep_ckpts=3),
+    sampler_seed=dict(type='DistSamplerSeedHook'),
+    visualization=dict(type='SegVisualizationHook'),
+)
+env_cfg = dict(
+    cudnn_benchmark=True,
+    mp_cfg=dict(mp_start_method='fork', opencv_num_threads=0),
+    dist_cfg=dict(backend='nccl'),
+)
+log_processor = dict(by_epoch=True)
+log_level = 'INFO'
+load_from = None
+resume = False
+launcher = 'none'
+randomness = dict(seed=0, deterministic=False)
+auto_scale_lr = dict(enable=True, base_batch_size=16)
+
+model = dict(
+    type='EncoderDecoder',
+    data_preprocessor=dict(
+        type='PastisTemporalDataPreprocessor',
+        mean=None,
+        std=None,
+        pad_size_divisor=1,
+        seg_pad_value=ignore_index,
+    ),
+    backbone=dict(
+        type='CopernicusFMTemporalSegBackbone',
+        arch=arch,
+        pretrained=pretrained,
+        out_indices=out_indices,
+        img_size=128,
+        patch_size=4,  # 16,
+        kernel_size=4,  # 16,
+        input_mode='spectral',
+        var_option='spectrum',
+        temporal_fusion='mean',
+        time_chunk_size=None,
+        freeze_backbone=False,
+        meta_mode='nan',
+    ),
+
+    decode_head=dict(
+        type='LinearProbeHead',
+        in_channels=cfm_channels,
+        channels=cfm_channels,
+        in_index=-1,
+        input_transform=None,
+        dropout_ratio=0.0,
+        num_classes=num_classes,
+        align_corners=False,
+        ignore_index=ignore_index,
+        loss_decode=dict(type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+    ),
+    train_cfg=dict(),
+    test_cfg=dict(mode='whole'),
+)
+
+custom_hooks = [dict(type='FreezeBackboneBeforeEpochHook', unfreeze_epoch=10, freeze_at_start=True)]

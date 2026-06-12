@@ -10,6 +10,7 @@ from .loading import (
 from .normalize import (
     OlmoEarthDatasetNormalize,
     OlmoEarthNormalize,
+    RGBToOlmoEarthRGB,
     RGBToOlmoEarthS2,
 )
 
@@ -25,5 +26,6 @@ __all__ = [
     "OlmoEarthPad",
     "OlmoEarthRandomFlip",
     "PackOlmoEarthSegInputs",
+    "RGBToOlmoEarthRGB",
     "RGBToOlmoEarthS2",
 ]
