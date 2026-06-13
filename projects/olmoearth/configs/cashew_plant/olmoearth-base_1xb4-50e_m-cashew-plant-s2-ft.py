@@ -2,6 +2,10 @@ _base_ = "./olmoearth-base_1xb8-50e_m-cashew-plant-s2-linear.py"
 
 work_dir = "./work_dirs/olmoearth-base_1xb4-50e_m-cashew-plant-s2-ft"
 
+olmoearth_model_dir = "/mnt/ht2-nas2/EO_test/model/OlmoEarth-v1-Base"
+model_config_path = f"{olmoearth_model_dir}/config.json"
+weights_path = f"{olmoearth_model_dir}/weights.pth"
+
 # Align olmoearth_pretrain finetune eval for m-cashew-plant:
 # ft_batch_size=4, num_workers=4, epochs=50, patch_size=16,
 # NORM_NO_CLIP_2_STD, and 20% frozen-backbone warm start.
@@ -28,6 +32,9 @@ data_preprocessor = dict(
 
 model = dict(
     backbone=dict(
+        model_config_path=model_config_path,
+        init_cfg=dict(type="Pretrained", checkpoint=weights_path),
+        modality="sentinel2_l2a",
         patch_size=patch_size,
         fast_pass=True,
     ),
