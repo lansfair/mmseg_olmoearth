@@ -5,9 +5,9 @@ work_dir = (
     "olmoearth-base_upernet_4xb4-80k_potsdam-rgb-native-p4-512x512"
 )
 
-olmoearth_rgb_model_dir = "/mnt/ht2-nas2/EO_test/model/OlmoEarth-v1-Base"
-model_config_path = f"{olmoearth_rgb_model_dir}/config.json"
-weights_path = f"{olmoearth_rgb_model_dir}/weights.pth"
+olmoearth_model_dir = "/mnt/ht2-nas2/EO_test/model/OlmoEarth-v1-Base"
+model_config_path = f"{olmoearth_model_dir}/config.json"
+weights_path = f"{olmoearth_model_dir}/weights.pth"
 
 train_pipeline = [
     dict(type="LoadImageFromFile"),
