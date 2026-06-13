@@ -325,15 +325,27 @@ class RGBToOlmoEarthRGB(BaseTransform):
         self.nir_fill_value = nir_fill_value
         self.keep_raw_input = keep_raw_input
         self.band_names = list(get_modality_bands("rgb"))
+        self.norm_config = _load_computed_norm("rgb")
+        self.std_multiplier = 2.0
 
-    def _to_unit_scale(self, image: np.ndarray) -> np.ndarray:
+    def _to_rgb_scale(self, image: np.ndarray) -> np.ndarray:
         mode = self.input_value_range
         if mode == "auto":
             max_value = float(np.nanmax(image)) if image.size else 0.0
             mode = "0_1" if max_value <= 1.5 else "0_255"
-        if mode == "0_255":
-            return image / 255.0
+        if mode == "0_1":
+            return image * 255.0
         return image
+
+    def _normalize_band(
+        self,
+        values: np.ndarray,
+        band_name: str,
+    ) -> np.ndarray:
+        stats = self.norm_config[band_name]
+        min_val = stats["mean"] - self.std_multiplier * stats["std"]
+        max_val = stats["mean"] + self.std_multiplier * stats["std"]
+        return (values - min_val) / (max_val - min_val)
 
     def transform(self, results: dict[str, Any]) -> dict[str, Any]:
         image = results["img"].astype(np.float32, copy=False)
@@ -342,9 +354,9 @@ class RGBToOlmoEarthRGB(BaseTransform):
             raise ValueError(
                 f"Expected RGB image with {expected} channels, "
                 f"got {image.shape}"
-            )
+        )
         raw_image = image.copy() if self.keep_raw_input else None
-        image = self._to_unit_scale(image)
+        image = self._to_rgb_scale(image)
         h, w = image.shape[:2]
         out = np.full(
             (h, w, len(self.band_names) * self.num_timesteps),
@@ -360,7 +372,10 @@ class RGBToOlmoEarthRGB(BaseTransform):
                 rgb_idx = rgb_base + channel_to_index[band_name]
                 band_idx = self.band_names.index(band_name)
                 out_idx = band_idx * self.num_timesteps + t
-                out[..., out_idx] = image[..., rgb_idx]
+                out[..., out_idx] = self._normalize_band(
+                    image[..., rgb_idx],
+                    band_name,
+                )
         results["img"] = out
         results["olmoearth_modality"] = "rgb"
         results["olmoearth_num_timesteps"] = self.num_timesteps
