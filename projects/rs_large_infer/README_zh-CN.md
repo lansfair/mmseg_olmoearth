@@ -101,7 +101,7 @@ RGB GeoTIFF 会按文件 band 顺序读取，通常是 R/G/B：
 ```bash
 python projects/rs_large_infer/src/cli.py \
   --image /data/rgb_large.tif \
-  --config projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p4-512x512.py \
+  --config projects/olmoearth/configs/potsdam/olmoearth-base_upernet_4xb4-80k_potsdam-rgb-p16-512x512.py \
   --checkpoint /checkpoints/mmseg_checkpoint.pth \
   --output /outputs/pred_label.tif \
   --input-mode rgb \
