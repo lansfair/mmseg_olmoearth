@@ -31,6 +31,8 @@ class PackOlmoEarthSegInputs(BaseTransform):
             "olmoearth_rgb_adapter",
             "olmoearth_raw_img",
             "olmoearth_raw_band_names",
+            "olmoearth_crs",
+            "olmoearth_transform",
         ),
     ) -> None:
         self.meta_keys = meta_keys

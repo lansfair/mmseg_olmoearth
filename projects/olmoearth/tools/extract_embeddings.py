@@ -14,7 +14,13 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from common import progress_iter, save_geotiff, save_json
+from common import (
+    affine_to_coefficients,
+    coerce_affine_transform,
+    progress_iter,
+    save_geotiff,
+    save_json,
+)
 
 
 SCRIPT_DEFAULTS = {
@@ -142,6 +148,32 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _georef_from_metainfo(
+    metainfo: dict[str, Any],
+) -> tuple[Any | None, Any | None]:
+    return (
+        metainfo.get("olmoearth_transform"),
+        metainfo.get("olmoearth_crs"),
+    )
+
+
+def _scale_transform_for_shape(
+    transform: Any | None,
+    src_hw: tuple[int, int],
+    dst_hw: tuple[int, int],
+) -> list[float] | None:
+    if transform is None or src_hw[0] <= 0 or src_hw[1] <= 0:
+        return None
+    if dst_hw[0] <= 0 or dst_hw[1] <= 0:
+        return None
+    from rasterio.transform import Affine
+
+    base = coerce_affine_transform(transform)
+    scale_x = float(src_hw[1]) / float(dst_hw[1])
+    scale_y = float(src_hw[0]) / float(dst_hw[0])
+    return affine_to_coefficients(base * Affine.scale(scale_x, scale_y))
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -244,6 +276,17 @@ def _make_manifest_sample(
         raw_input_rel = Path(split) / sample_id / "raw_input.tif"
         sample["raw_input_path"] = str(raw_input_rel).replace("\\", "/")
         sample["raw_input_shape"] = raw_input_shape
+    transform, crs = _georef_from_metainfo(metainfo)
+    if crs is not None:
+        sample["crs"] = str(crs)
+    transform_coefficients = affine_to_coefficients(transform)
+    if transform_coefficients is not None:
+        sample["transform"] = transform_coefficients
+        sample["embedding_transform"] = _scale_transform_for_shape(
+            transform_coefficients,
+            tuple(int(dim) for dim in label.shape[:2]),
+            (int(feature_shape[-2]), int(feature_shape[-1])),
+        )
     if "timestamps" in metainfo:
         sample["timestamps"] = _jsonable(metainfo["timestamps"])
     return sample
@@ -287,10 +330,19 @@ def _save_task_output(
     tile_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task["sample_dir"].mkdir(parents=True, exist_ok=True)
+    transform, crs = _georef_from_metainfo(task["metainfo"])
+    label_hw = tuple(int(dim) for dim in task["label"].shape[:2])
+    embedding_transform = _scale_transform_for_shape(
+        transform,
+        label_hw,
+        (int(feature.shape[-2]), int(feature.shape[-1])),
+    )
     save_geotiff(
         task["embedding_path"],
         feature.astype(np.float32, copy=False),
         descriptions=embedding_names,
+        transform=embedding_transform,
+        crs=crs,
     )
     input_shape = None
     if save_inputs:
@@ -298,6 +350,8 @@ def _save_task_output(
         save_geotiff(
             task["input_path"],
             input_arr.astype(np.float32, copy=False),
+            transform=transform,
+            crs=crs,
         )
         input_shape = list(input_arr.shape)
     raw_input_shape = None
@@ -319,9 +373,11 @@ def _save_task_output(
             task["raw_input_path"],
             raw_chw,
             descriptions=band_names,
+            transform=transform,
+            crs=crs,
         )
         raw_input_shape = list(raw_chw.shape)
-    save_geotiff(task["label_path"], task["label"])
+    save_geotiff(task["label_path"], task["label"], transform=transform, crs=crs)
     sample = _make_manifest_sample(
         index=task["index"],
         split=task["embedding_path"].parent.parent.name,

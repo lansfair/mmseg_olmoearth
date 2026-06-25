@@ -69,10 +69,65 @@ def save_json(path: Path, payload: dict[str, Any]) -> None:
         json.dump(make_json_safe(payload), f, indent=2)
 
 
+def coerce_affine_transform(transform: Any):
+    """Convert a rasterio/Affine-like transform to ``Affine``."""
+    from rasterio.transform import Affine
+
+    if transform is None:
+        return None
+    if isinstance(transform, Affine):
+        return transform
+    if all(hasattr(transform, key) for key in ("a", "b", "c", "d", "e", "f")):
+        return Affine(
+            float(transform.a),
+            float(transform.b),
+            float(transform.c),
+            float(transform.d),
+            float(transform.e),
+            float(transform.f),
+        )
+    if isinstance(transform, dict):
+        if all(key in transform for key in ("a", "b", "c", "d", "e", "f")):
+            return Affine(
+                float(transform["a"]),
+                float(transform["b"]),
+                float(transform["c"]),
+                float(transform["d"]),
+                float(transform["e"]),
+                float(transform["f"]),
+            )
+        if "coefficients" in transform:
+            transform = transform["coefficients"]
+    if isinstance(transform, np.ndarray):
+        transform = transform.tolist()
+    if isinstance(transform, (list, tuple)):
+        values = [float(value) for value in transform]
+        if len(values) >= 6:
+            return Affine(*values[:6])
+    raise TypeError(f"Unsupported affine transform: {transform!r}")
+
+
+def affine_to_coefficients(transform: Any) -> list[float] | None:
+    """Return JSON-safe six-coefficient Affine representation."""
+    affine = coerce_affine_transform(transform)
+    if affine is None:
+        return None
+    return [
+        float(affine.a),
+        float(affine.b),
+        float(affine.c),
+        float(affine.d),
+        float(affine.e),
+        float(affine.f),
+    ]
+
+
 def save_geotiff(
     path: Path,
     array: np.ndarray,
     descriptions: list[str] | tuple[str, ...] | None = None,
+    transform: Any | None = None,
+    crs: Any | None = None,
 ) -> None:
     """Save a 2D label/mask or CHW image tensor as a GeoTIFF."""
     import warnings
@@ -103,10 +158,12 @@ def save_geotiff(
         "width": int(output.shape[2]),
         "count": int(output.shape[0]),
         "dtype": str(output.dtype),
-        "transform": Affine.identity(),
+        "transform": coerce_affine_transform(transform) or Affine.identity(),
         "compress": "lzw",
         "BIGTIFF": "IF_SAFER",
     }
+    if crs is not None:
+        profile["crs"] = crs
     if np.issubdtype(output.dtype, np.floating):
         profile["predictor"] = 3
 

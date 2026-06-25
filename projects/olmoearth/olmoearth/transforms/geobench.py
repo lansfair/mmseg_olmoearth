@@ -128,6 +128,84 @@ def _resize_2d_if_needed(
     return zoom(array, zoom=zoom_factor, order=order)
 
 
+def _metadata_value(obj: Any, keys: tuple[str, ...]) -> Any | None:
+    """Best-effort lookup across object attrs and common metadata dicts."""
+    if obj is None:
+        return None
+    for key in keys:
+        if hasattr(obj, key):
+            value = getattr(obj, key)
+            if value is not None:
+                return value
+    for container_name in ("metadata", "meta", "attrs", "properties"):
+        container = getattr(obj, container_name, None)
+        if isinstance(container, dict):
+            for key in keys:
+                value = container.get(key)
+                if value is not None:
+                    return value
+    if isinstance(obj, dict):
+        for key in keys:
+            value = obj.get(key)
+            if value is not None:
+                return value
+    return None
+
+
+def _affine_coefficients(transform: Any) -> list[float] | None:
+    if transform is None:
+        return None
+    if all(hasattr(transform, key) for key in ("a", "b", "c", "d", "e", "f")):
+        return [
+            float(transform.a),
+            float(transform.b),
+            float(transform.c),
+            float(transform.d),
+            float(transform.e),
+            float(transform.f),
+        ]
+    if isinstance(transform, dict):
+        if all(key in transform for key in ("a", "b", "c", "d", "e", "f")):
+            return [
+                float(transform["a"]),
+                float(transform["b"]),
+                float(transform["c"]),
+                float(transform["d"]),
+                float(transform["e"]),
+                float(transform["f"]),
+            ]
+        if "coefficients" in transform:
+            transform = transform["coefficients"]
+    if isinstance(transform, np.ndarray):
+        transform = transform.tolist()
+    if isinstance(transform, (list, tuple)) and len(transform) >= 6:
+        return [float(value) for value in transform[:6]]
+    return None
+
+
+def _extract_sample_georef(sample: Any) -> tuple[str | None, list[float] | None]:
+    """Extract CRS and Affine coefficients when GEO-Bench exposes them."""
+    candidates = [sample, getattr(sample, "label", None)]
+    candidates.extend(list(getattr(sample, "bands", []) or []))
+
+    crs = None
+    transform = None
+    for candidate in candidates:
+        if crs is None:
+            crs = _metadata_value(candidate, ("crs", "projection", "srs"))
+        if transform is None:
+            transform = _metadata_value(
+                candidate,
+                ("transform", "affine", "geo_transform", "geotransform"),
+            )
+        if crs is not None and transform is not None:
+            break
+
+    transform_coefficients = _affine_coefficients(transform)
+    crs_text = None if crs is None else str(crs)
+    return crs_text, transform_coefficients
+
+
 @TRANSFORMS.register_module()
 class LoadGeoBenchS2OfficialNorm(BaseTransform):
     """Load GEO-Bench S2 samples with OLMoEarth official normalization.
@@ -227,6 +305,7 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
     def transform(self, results: dict[str, Any]) -> dict[str, Any]:
         dataset, _ = self._get_dataset_and_task(results)
         sample = dataset[results["sample_idx"]]
+        crs, transform = _extract_sample_georef(sample)
         image_13 = _collect_s2_bands(
             sample,
             self.eval_band_names,
@@ -270,6 +349,10 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         if self.keep_raw_input:
             results["olmoearth_raw_img"] = np.ascontiguousarray(raw_image)
             results["olmoearth_raw_band_names"] = self.eval_band_names
+        if crs is not None:
+            results["olmoearth_crs"] = crs
+        if transform is not None:
+            results["olmoearth_transform"] = transform
         results["gt_seg_map"] = np.ascontiguousarray(label)
         results["img_shape"] = image.shape[:2]
         results["ori_shape"] = image.shape[:2]
