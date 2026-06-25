@@ -12,6 +12,10 @@ num_classes = 7
 patch_size = 16
 hidden_dim = 768
 embedding_size = (16, 16)
+max_epochs = 50
+iters_per_epoch = 169  # ceil(1350 train samples / batch_size 8)
+max_iters = max_epochs * iters_per_epoch
+warmup_iters = int(max_iters * 0.1)
 
 train_pipeline = [
     dict(type="LoadOlmoEarthEmbedding", ignore_index=ignore_index),
@@ -114,28 +118,28 @@ model = dict(
 
 optim_wrapper = dict(
     type="OptimWrapper",
-    optimizer=dict(type="AdamW", lr=0.1, weight_decay=0.0),
+    optimizer=dict(type="AdamW", lr=0.1, weight_decay=0.01),
 )
 
 param_scheduler = [
     dict(
         type="LinearLR",
-        start_factor=1e-3,
+        start_factor=1e-8,
         begin=0,
-        end=5,
-        by_epoch=True,
+        end=warmup_iters,
+        by_epoch=False,
     ),
     dict(
         type="CosineAnnealingLR",
         eta_min=1e-5,
-        begin=5,
-        end=50,
-        T_max=45,
-        by_epoch=True,
+        begin=warmup_iters,
+        end=max_iters,
+        T_max=max_iters - warmup_iters,
+        by_epoch=False,
     ),
 ]
 
-train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=50, val_interval=10)
+train_cfg = dict(type="EpochBasedTrainLoop", max_epochs=max_epochs, val_interval=10)
 val_cfg = dict(type="ValLoop")
 test_cfg = dict(type="TestLoop")
 
