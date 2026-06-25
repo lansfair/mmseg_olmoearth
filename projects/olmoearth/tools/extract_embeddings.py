@@ -162,13 +162,17 @@ def _scale_transform_for_shape(
     src_hw: tuple[int, int],
     dst_hw: tuple[int, int],
 ) -> list[float] | None:
-    if transform is None or src_hw[0] <= 0 or src_hw[1] <= 0:
+    if src_hw[0] <= 0 or src_hw[1] <= 0:
         return None
     if dst_hw[0] <= 0 or dst_hw[1] <= 0:
         return None
     from rasterio.transform import Affine
 
-    base = coerce_affine_transform(transform)
+    base = (
+        coerce_affine_transform(transform)
+        if transform is not None
+        else Affine.identity()
+    )
     scale_x = float(src_hw[1]) / float(dst_hw[1])
     scale_y = float(src_hw[0]) / float(dst_hw[0])
     return affine_to_coefficients(base * Affine.scale(scale_x, scale_y))
@@ -279,14 +283,19 @@ def _make_manifest_sample(
     transform, crs = _georef_from_metainfo(metainfo)
     if crs is not None:
         sample["crs"] = str(crs)
-    transform_coefficients = affine_to_coefficients(transform)
+    transform_coefficients = _scale_transform_for_shape(
+        transform,
+        tuple(int(dim) for dim in label.shape[:2]),
+        tuple(int(dim) for dim in label.shape[:2]),
+    )
     if transform_coefficients is not None:
         sample["transform"] = transform_coefficients
         sample["embedding_transform"] = _scale_transform_for_shape(
-            transform_coefficients,
+            transform,
             tuple(int(dim) for dim in label.shape[:2]),
             (int(feature_shape[-2]), int(feature_shape[-1])),
         )
+        sample["is_georeferenced"] = crs is not None and transform is not None
     if "timestamps" in metainfo:
         sample["timestamps"] = _jsonable(metainfo["timestamps"])
     return sample
