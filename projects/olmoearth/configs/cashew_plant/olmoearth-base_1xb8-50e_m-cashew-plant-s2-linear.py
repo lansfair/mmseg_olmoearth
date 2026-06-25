@@ -7,13 +7,14 @@ geobench_root = "/mnt/ht2-nas2/EO_test/dataset/geo-bench-1.0"
 olmoearth_model_dir = "/mnt/ht2-nas2/EO_test/model/OlmoEarth-v1-Base"
 model_config_path = f"{olmoearth_model_dir}/config.json"
 weights_path = f"{olmoearth_model_dir}/weights.pth"
-work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-linear"
+work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-linear-p16"
 
 ignore_index = 255
 num_classes = 7
 num_timesteps = 1
 crop_size = (256, 256)
-patch_size = 4
+# OLMoEarth reports its best m-cashew-plant linear-probe result with patch 16.
+patch_size = 16
 hidden_dim = 768
 
 s2_band_names = [
@@ -40,7 +41,7 @@ train_pipeline = [
         ignore_index=ignore_index,
         invalid_label_to_ignore=True,
         imputes=geobench_s2_imputes,
-        default_timestamp=(15, 4, 2024),
+        default_timestamp=(1, 6, 2020),
     ),
     dict(
         type="RandomCrop",
@@ -57,7 +58,7 @@ test_pipeline = [
         ignore_index=ignore_index,
         invalid_label_to_ignore=True,
         imputes=geobench_s2_imputes,
-        default_timestamp=(15, 4, 2024),
+        default_timestamp=(1, 6, 2020),
     ),
     dict(type="PackOlmoEarthSegInputs"),
 ]

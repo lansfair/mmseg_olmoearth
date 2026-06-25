@@ -3,14 +3,15 @@ custom_imports = dict(
     allow_failed_imports=False,
 )
 
-embedding_root = "/mnt/ht2-nas2/EO_test/dataset/cashew_plant_olmoearth_embeddings"
-work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-offline-linear"
+embedding_root = "/mnt/ht2-nas2/EO_test/dataset/cashew_plant_olmoearth_embeddings_p16"
+work_dir = "./work_dirs/olmoearth-base_1xb8-50e_m-cashew-plant-s2-offline-linear-p16"
 
 ignore_index = 255
 num_classes = 7
-patch_size = 4
+# Must match the extraction-source config's patch_size.
+patch_size = 16
 hidden_dim = 768
-embedding_size = (64, 64)
+embedding_size = (16, 16)
 
 train_pipeline = [
     dict(type="LoadOlmoEarthEmbedding", ignore_index=ignore_index),

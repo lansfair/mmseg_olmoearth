@@ -283,6 +283,31 @@ Common extraction arguments can be edited directly in `SCRIPT_DEFAULTS` at the
 top of `projects/olmoearth/tools/extract_embeddings.py`. CLI arguments still
 override those defaults when you need a one-off change.
 
+For `m-cashew-plant`, use the explicit patch-16 route below. The OLMoEarth
+paper reports the best linear-probe result for this dataset after sweeping
+patch size and selecting patch 16 with mean pooling and `probe_lr=0.1`.
+Always write patch-16 embeddings to a fresh output directory so stale patch-4
+features are not reused:
+
+```bash
+python projects/olmoearth/tools/extract_embeddings.py \
+  --config projects/olmoearth/configs/cashew_plant/olmoearth-base_1xb8-50e_m-cashew-plant-s2-linear.py \
+  --output-root /mnt/ht2-nas2/EO_test/dataset/cashew_plant_olmoearth_embeddings_p16 \
+  --splits train val test \
+  --pipeline-key test_pipeline
+```
+
+Then train the offline patch-linear probe:
+
+```bash
+python tools/train.py \
+  projects/olmoearth/configs/cashew_plant/olmoearth-base_1xb8-50e_m-cashew-plant-s2-offline-linear.py
+```
+
+The cashew source and offline configs are aligned as patch 16, mean pooling,
+AdamW `lr=0.1`, task-stat `NORM_NO_CLIP_2_STD` normalization, and the
+GEO-Bench evaluator timestamp `(1, 6, 2020)`.
+
 This extraction step is intentionally not a normal MMSeg training loop. It
 reuses MMSeg config parsing, registries, datasets, and pipelines to get the
 same samples that online training would see, but it bypasses the MMSeg Runner
