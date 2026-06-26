@@ -228,6 +228,7 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
         output_band_names: list[str] | tuple[str, ...] | None = None,
         imputes: list[tuple[str, str]] | tuple[tuple[str, str], ...] | None = None,
         keep_raw_input: bool = False,
+        norm_stats_from_pretrained: bool = False,
     ) -> None:
         self.num_classes = int(num_classes)
         self.ignore_index = int(ignore_index)
@@ -242,6 +243,12 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
             imputes = DEFAULT_S2_IMPUTES
         self.imputes = [tuple(rule) for rule in imputes]
         self.keep_raw_input = bool(keep_raw_input)
+        self.norm_stats_from_pretrained = bool(norm_stats_from_pretrained)
+        self._computed_normalizer = None
+        if self.norm_stats_from_pretrained:
+            from olmoearth_pretrain.data.normalize import Normalizer, Strategy
+
+            self._computed_normalizer = Normalizer(Strategy.COMPUTED)
         self._dataset = None
         self._task = None
         self._dataset_key = None
@@ -312,12 +319,21 @@ class LoadGeoBenchS2OfficialNorm(BaseTransform):
             self.imputes,
         ).astype(np.float32)
         raw_image = image_13.astype(np.float32)
-        image_13 = _norm_no_clip_2_std(
-            image_13,
-            self._means_13,
-            self._stds_13,
-        )
         image = image_13[:, :, self._olmo_indices].astype(np.float32)
+        if self.norm_stats_from_pretrained:
+            from olmoearth_pretrain.data.constants import Modality
+
+            image = self._computed_normalizer.normalize(
+                Modality.SENTINEL2_L2A,
+                image,
+            ).astype(np.float32)
+        else:
+            image_13 = _norm_no_clip_2_std(
+                image_13,
+                self._means_13,
+                self._stds_13,
+            )
+            image = image_13[:, :, self._olmo_indices].astype(np.float32)
 
         label = np.asarray(sample.label.data)
         if label.ndim == 3:

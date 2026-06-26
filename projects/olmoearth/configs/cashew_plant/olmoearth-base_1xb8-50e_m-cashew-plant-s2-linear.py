@@ -42,6 +42,7 @@ train_pipeline = [
         invalid_label_to_ignore=True,
         imputes=geobench_s2_imputes,
         default_timestamp=(1, 6, 2020),
+        norm_stats_from_pretrained=True,
     ),
     dict(
         type="RandomCrop",
@@ -59,6 +60,7 @@ test_pipeline = [
         invalid_label_to_ignore=True,
         imputes=geobench_s2_imputes,
         default_timestamp=(1, 6, 2020),
+        norm_stats_from_pretrained=True,
     ),
     dict(type="PackOlmoEarthSegInputs"),
 ]
