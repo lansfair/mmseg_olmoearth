@@ -4,12 +4,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import torch
-import torch.nn as nn
-from mmcv.ops import MultiScaleDeformableAttention
 from mmengine.model import BaseModule
 from mmseg.registry import MODELS
 from torch import Tensor
+
+from .dinov3_adapter_source import DINOv3_Adapter
 
 
 def _default_repo_dir() -> str:
@@ -22,67 +21,6 @@ def _add_repo_to_path(repo_dir: str) -> None:
         raise FileNotFoundError(f"DINOv3 repo_dir does not exist: {repo_path}")
     if str(repo_path) not in sys.path:
         sys.path.insert(0, str(repo_path))
-
-
-def _patch_ms_deform_attn_import() -> bool:
-    module_name = "dinov3.eval.segmentation.models.utils.ms_deform_attn"
-    if module_name in sys.modules:
-        return False
-
-    module = type(sys)(module_name)
-    module.MSDeformAttn = _MmcvMSDeformAttn
-    sys.modules[module_name] = module
-    return True
-
-
-class _MmcvMSDeformAttn(nn.Module):
-    """MMCV-backed replacement for DINOv3 adapter MSDeformAttn."""
-
-    def __init__(
-        self,
-        d_model: int = 256,
-        n_levels: int = 4,
-        n_heads: int = 8,
-        n_points: int = 4,
-        ratio: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.d_model = d_model
-        self.n_levels = n_levels
-        self.n_heads = n_heads
-        self.n_points = n_points
-        self.ratio = ratio
-        del ratio
-        self.attn = MultiScaleDeformableAttention(
-            embed_dims=d_model,
-            num_levels=n_levels,
-            num_heads=n_heads,
-            num_points=n_points,
-            batch_first=True,
-        )
-
-    def init_weights(self) -> None:
-        self.attn.init_weights()
-
-    def forward(
-        self,
-        query: Tensor,
-        reference_points: Tensor,
-        input_flatten: Tensor,
-        input_spatial_shapes: Tensor,
-        input_level_start_index: Tensor,
-        input_padding_mask: Tensor | None = None,
-    ) -> Tensor:
-        return self.attn(
-            query=query,
-            value=input_flatten,
-            identity=torch.zeros_like(query),
-            query_pos=None,
-            key_padding_mask=input_padding_mask,
-            reference_points=reference_points,
-            spatial_shapes=input_spatial_shapes,
-            level_start_index=input_level_start_index,
-        )
 
 
 @MODELS.register_module()
@@ -134,18 +72,16 @@ class DINOv3AdapterBackbone(BaseModule):
         self.weights_path = weights_path
         self.freeze_vit = freeze_vit
         self.finetune_vit = finetune_vit
-        self.replace_ms_deform_attn = replace_ms_deform_attn
+        if not replace_ms_deform_attn:
+            raise ValueError(
+                "DINOv3AdapterBackbone uses the local DINOv3 adapter with "
+                "MMCV MSDeformAttn; replace_ms_deform_attn must be True."
+            )
         self.out_channels = self._infer_out_channels(arch)
 
         _add_repo_to_path(self.repo_dir)
-        import_patched = False
-        if replace_ms_deform_attn:
-            import_patched = _patch_ms_deform_attn_import()
 
         from omegaconf import OmegaConf
-        from dinov3.eval.segmentation.models.backbone.dinov3_adapter import (
-            DINOv3_Adapter,
-        )
         from dinov3.models import build_model_for_eval
 
         cfg = OmegaConf.create(
@@ -193,8 +129,6 @@ class DINOv3AdapterBackbone(BaseModule):
             interaction_indexes=interaction_indexes,
             with_cp=with_cp,
         )
-        if replace_ms_deform_attn and not import_patched:
-            self._replace_ms_deform_attn()
 
         self.adapter.finetune_vit = finetune_vit
         self._set_trainable_parameters()
@@ -225,24 +159,6 @@ class DINOv3AdapterBackbone(BaseModule):
         if channels is None:
             raise ValueError(f"Unsupported DINOv3 arch: {arch}")
         return (channels, channels, channels, channels)
-
-    def _replace_ms_deform_attn(self) -> None:
-        from dinov3.eval.segmentation.models.utils.ms_deform_attn import (
-            MSDeformAttn,
-        )
-
-        for parent in self.adapter.modules():
-            for name, child in list(parent.named_children()):
-                if isinstance(child, MSDeformAttn):
-                    replacement = _MmcvMSDeformAttn(
-                        d_model=child.d_model,
-                        n_levels=child.n_levels,
-                        n_heads=child.n_heads,
-                        n_points=child.n_points,
-                        ratio=child.ratio,
-                    )
-                    replacement.init_weights()
-                    setattr(parent, name, replacement)
 
     def _set_trainable_parameters(self) -> None:
         self.adapter.requires_grad_(True)
