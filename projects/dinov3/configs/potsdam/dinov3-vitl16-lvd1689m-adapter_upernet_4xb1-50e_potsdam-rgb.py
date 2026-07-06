@@ -1,19 +1,17 @@
-_base_ = "./dinov3-vitl16_4xb4-50e_potsdam-rgb.py"
+_base_ = "./dinov3-vitl16-sat493m_4xb4-50e_potsdam-rgb.py"
 
-work_dir = "./work_dirs/dinov3-distilled-swin-huge_upernet_4xb1-50e_potsdam-rgb-rvsa"
+work_dir = "./work_dirs/dinov3-vitl16-lvd1689m-adapter_upernet_4xb1-50e_potsdam-rgb-rvsa"
 
 ignore_index = 5
 num_classes = 5
 crop_size = 256
-swin_huge_channels = [352, 704, 1408, 2816]
+hidden_dim = 1024
 norm_cfg = dict(type="SyncBN", requires_grad=True)
 
-# Accept either an extracted pure backbone state_dict or the merged DINOv3
-# distillation checkpoint. The wrapper prefers model_ema.backbone weights.
-swin_huge_checkpoint = (
-    "/mnt/si000523ygkv/00-model/dinov3-distill-outputs/"
-    "swin_base_vitl16_ssl_feature_distill_GE+IN22k+ZJSlice1024_16nodes_nowarmup_lowlr/"
-    "ckpt/30999/swintransformer-huge.pt"
+dinov3_root = "/mnt/ht2-nas2/EO_test/dataset/dinov3_pretrained"
+dinov3_weights_path = (
+    f"{dinov3_root}/DINOv3 ViT LVD-1689M/"
+    "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth"
 )
 
 train_dataloader = dict(
@@ -42,19 +40,20 @@ model = dict(
     ),
     backbone=dict(
         _delete_=True,
-        type="DINOv3DistilledSwinHuge",
-        checkpoint=swin_huge_checkpoint,
-        img_size=crop_size,
-        patch_size=4,
-        window_size=8,
-        out_indices=(0, 1, 2, 3),
-        use_ema=True,
-        frozen=False,
+        type="DINOv3AdapterBackbone",
+        arch="vit_large",
+        patch_size=16,
+        weights_path=dinov3_weights_path,
+        weight_variant="lvd1689m",
+        freeze_vit=True,
+        finetune_vit=False,
+        replace_ms_deform_attn=True,
+        with_cp=False,
     ),
     decode_head=dict(
         _delete_=True,
         type="UPerHead",
-        in_channels=swin_huge_channels,
+        in_channels=[hidden_dim, hidden_dim, hidden_dim, hidden_dim],
         in_index=[0, 1, 2, 3],
         pool_scales=(1, 2, 3, 6),
         channels=512,
@@ -71,9 +70,9 @@ model = dict(
     ),
     auxiliary_head=dict(
         type="FCNHead",
-        in_channels=1408,
+        in_channels=hidden_dim,
         in_index=2,
-        channels=512,
+        channels=256,
         num_convs=1,
         concat_input=False,
         dropout_ratio=0.1,

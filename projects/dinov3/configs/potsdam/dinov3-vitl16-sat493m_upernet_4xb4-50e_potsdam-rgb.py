@@ -1,6 +1,6 @@
-_base_ = "./dinov3-vitl16_4xb4-50e_potsdam-rgb.py"
+_base_ = "./dinov3-vitl16-sat493m_4xb4-50e_potsdam-rgb.py"
 
-work_dir = "./work_dirs/dinov3-vitl16_upernet_4xb4-50e_potsdam-rgb-rvsa"
+work_dir = "./work_dirs/dinov3-vitl16-sat493m_upernet_4xb4-50e_potsdam-rgb-rvsa"
 
 ignore_index = 5
 num_classes = 5

@@ -13,7 +13,7 @@ dinov3_repo_dir = "/mnt/ht2-nas2/EO_test/wyf/mmseg_olmoearth/projects/dinov3/din
 dinov3_weights_path = (
     f"{dinov3_root}/DINOv3 ViT SAT-493M/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
 )
-work_dir = "./work_dirs/dinov3-vitl16_pastis-10band-12t-128x128"
+work_dir = "./work_dirs/dinov3-vitl16-sat493m_pastis-10band-12t-128x128"
 
 ignore_index = 255
 num_classes = 19

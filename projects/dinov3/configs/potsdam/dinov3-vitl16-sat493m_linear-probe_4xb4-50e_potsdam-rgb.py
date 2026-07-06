@@ -1,6 +1,6 @@
-_base_ = "./dinov3-vitl16_4xb4-50e_potsdam-rgb.py"
+_base_ = "./dinov3-vitl16-sat493m_4xb4-50e_potsdam-rgb.py"
 
-work_dir = "./work_dirs/dinov3-vitl16_linear-probe_4xb4-50e_potsdam-rgb"
+work_dir = "./work_dirs/dinov3-vitl16-sat493m_linear-probe_4xb4-50e_potsdam-rgb"
 
 ignore_index = 5
 num_classes = 5

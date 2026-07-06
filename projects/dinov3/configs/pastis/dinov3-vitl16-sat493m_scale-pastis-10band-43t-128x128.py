@@ -1,6 +1,6 @@
-_base_ = "./dinov3-vitl16_pastis-10band-43t-128x128.py"
+_base_ = "./dinov3-vitl16-sat493m_pastis-10band-43t-128x128.py"
 
-work_dir = "./work_dirs/dinov3-vitl16_scale-pastis-10band-43t-128x128"
+work_dir = "./work_dirs/dinov3-vitl16-sat493m_scale-pastis-10band-43t-128x128"
 
 train_pipeline = [
     dict(
