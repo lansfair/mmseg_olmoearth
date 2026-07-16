@@ -265,7 +265,9 @@ class UniverSatPASTISDataset(BaseDataset):
         """Randomly drop time steps at train/val time."""
         t = data.shape[0]
         if t > self.temporal_dropout:
-            indices = torch.randperm(t)[: self.temporal_dropout].sort().values
+            # Match the original UniverSat protocol: observations and their
+            # dates share the same unsorted random permutation.
+            indices = torch.randperm(t)[: self.temporal_dropout]
             data = data[indices]
             dates = dates[indices]
         return data, dates
@@ -282,8 +284,9 @@ class UniverSatPASTISDataset(BaseDataset):
         output = {}
         for modality in self.modalities:
             data, dates = self._load_modality(data_info, modality)
-            if not self.test_mode:
-                data, dates = self._temporal_dropout(data, dates)
+            # The config controls each split explicitly: the official protocol
+            # caps train/val at 200 and leaves test uncapped (value 0).
+            data, dates = self._temporal_dropout(data, dates)
             output[modality] = data
             output[f"{modality}_dates"] = dates
 
@@ -319,8 +322,9 @@ def universat_pastis_collate(batch: List[dict]) -> dict:
 
     PASTIS-R samples may have different numbers of time steps (``T``). This
     collate pads each modality tensor and its dates to the maximum ``T`` in
-    the batch before stacking. The final valid observation is repeated rather
-    than inserting a fake zero-valued acquisition at the reference date.
+    the batch before stacking. As in the original UniverSat PASTIS-R loader,
+    imagery and dates are zero-padded. The official protocol uses batch size 1,
+    so no padding is inserted in the reference experiment.
     """
     if not batch:
         return {}
@@ -340,7 +344,12 @@ def universat_pastis_collate(batch: List[dict]) -> dict:
             for t in tensors:
                 pad_size = max_t - t.shape[0]
                 if pad_size > 0:
-                    pad = t[-1:].expand(pad_size, *t.shape[1:])
+                    pad = torch.zeros(
+                        pad_size,
+                        *t.shape[1:],
+                        dtype=t.dtype,
+                        device=t.device,
+                    )
                     t = torch.cat([t, pad], dim=0)
                 padded.append(t)
             inputs[key] = torch.stack(padded, dim=0)
@@ -350,7 +359,11 @@ def universat_pastis_collate(batch: List[dict]) -> dict:
             for t in tensors:
                 pad_size = max_t - t.shape[0]
                 if pad_size > 0:
-                    pad = t[-1:].expand(pad_size)
+                    pad = torch.zeros(
+                        pad_size,
+                        dtype=t.dtype,
+                        device=t.device,
+                    )
                     t = torch.cat([t, pad], dim=0)
                 padded.append(t)
             inputs[key] = torch.stack(padded, dim=0)

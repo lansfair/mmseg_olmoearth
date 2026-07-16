@@ -44,7 +44,7 @@ train_dataloader = dict(
         modalities=modalities,
         folds=[1, 2, 3],
         norm_path=".",
-        temporal_dropout=30,  # 训练时最多 30 个时间步
+        temporal_dropout=200,  # official UniverSat PASTIS-R protocol
         pipeline=train_pipeline,
     ),
 )
@@ -61,7 +61,7 @@ val_dataloader = dict(
         modalities=modalities,
         folds=[4],
         norm_path=".",
-        temporal_dropout=0,
+        temporal_dropout=200,  # official code also caps validation series
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -111,7 +111,8 @@ model = dict(
         n_registers=4,
         gating=True,
         compile_encoder=False,
-        frozen_stages=0,  # freeze whole pretrained backbone
+        freeze_backbone=True,  # explicit switch used by the original LP code
+        frozen_stages=-1,
         init_cfg=dict(
             type="Pretrained",
             checkpoint=pretrained,

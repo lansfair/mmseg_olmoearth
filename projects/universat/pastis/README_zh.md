@@ -56,14 +56,14 @@ python tools/train.py \
 
 ## 配置文件
 
-- `universat-base_pastis_lp.py`：骨干网络冻结（`frozen_stages=0`），仅训练线性探测头。用于标准的 LP 评估。
+- `universat-base_pastis_lp.py`：骨干网络冻结（`freeze_backbone=True`），仅训练线性探测头。用于标准的 LP 评估。
 - `universat-base_pastis_ft.py`：骨干网络解冻（`frozen_stages=-1`），使用小型卷积分割头对整个模型进行微调。
 
 要切换到 UniverSat-Tiny，请将 `embed_dim` 改为 192，`num_heads` 改为 8，`block_type` 改为 `("Bi_ACA_in", "SAx12", "Bilinear_out", "CA_Sub")`（默认的 Base 配置已有 12 个 SA 块；Tiny 有 6 个）。
 
 ## 注意事项
 
-- PASTIS-R 样本的时间序列长度可变。自定义整理函数会重复最后一个有效观测来补齐批次，避免把全零影像和参考日期误当成真实观测。默认批量大小为 1，以控制 128×128 稠密特征的显存占用。
+- PASTIS-R 样本的时间序列长度可变。为复现官方协议，训练集和验证集随机保留最多 200 个观测且不重新排序；自定义整理函数用零影像和零日期补齐。官方批量大小为 1，因此参考实验实际不会产生补齐帧。
 - 传递给骨干网络的输入字典包含两个模态张量（`s2`、`s1`）及其对应的日期张量（`s2_dates`、`s1_dates`）。
 - `output_grid=128` 表示骨干网络输出 128 x 128 的令牌网格，与 PASTIS-R 原生的 128 x 128 分辨率匹配。
 - `num_classes=19` 且 `ignore_index=19`：模型预测 0=背景和 1-18 的有效类别；标注值 19 为空洞并被忽略。

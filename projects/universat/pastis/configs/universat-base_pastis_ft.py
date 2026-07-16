@@ -65,7 +65,7 @@ val_dataloader = dict(
         modalities=modalities,
         folds=[4],
         norm_path=".",
-        temporal_dropout=0,
+        temporal_dropout=200,  # official code also caps validation series
         pipeline=test_pipeline,
         test_mode=True,
     ),
@@ -115,6 +115,7 @@ model = dict(
         n_registers=4,
         gating=True,
         compile_encoder=False,
+        freeze_backbone=False,
         frozen_stages=-1,  # full fine-tune
         init_cfg=dict(
             type="Pretrained",

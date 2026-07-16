@@ -112,6 +112,7 @@ model = dict(
         n_registers=4,
         gating=True,
         compile_encoder=False,
+        freeze_backbone=False,
         frozen_stages=-1,
         init_cfg=dict(
             type="Pretrained",

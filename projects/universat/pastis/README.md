@@ -63,7 +63,7 @@ python tools/train.py \
 
 ## Configs
 
-- `universat-base_pastis_lp.py`: backbone frozen (`frozen_stages=0`), only the
+- `universat-base_pastis_lp.py`: backbone frozen (`freeze_backbone=True`), only the
   linear probe head is trained. Use this for standard LP evaluation.
 - `universat-base_pastis_ft.py`: backbone unfrozen (`frozen_stages=-1`), the
   whole model is fine-tuned with a small conv segmentation head.
@@ -74,10 +74,11 @@ Base block already has 12 SA blocks; Tiny has 6).
 
 ## Notes
 
-- PASTIS-R samples have variable time-series length. The custom collate
-  function repeats the final valid observation and date instead of inserting
-  fake zero acquisitions. Batch size 1 is the memory-safe default for dense
-  128 x 128 features.
+- PASTIS-R samples have variable time-series length. To reproduce the official
+  protocol, train/validation series are randomly capped at 200 observations
+  without re-sorting, and the custom collate function zero-pads imagery and
+  dates. The official batch size is 1, so no padding is inserted in the
+  reference experiment.
 - The input dict passed to the backbone contains both modality tensors
   (`s2`, `s1`) and their date tensors (`s2_dates`, `s1_dates`).
 - `output_grid=128` means the backbone outputs a 128 x 128 token grid,

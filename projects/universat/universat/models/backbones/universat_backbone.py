@@ -12,7 +12,6 @@ prefix.
 """
 
 import os
-from contextlib import nullcontext
 from functools import partial
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -119,9 +118,12 @@ class UniverSatBackbone(BaseModule):
         out_indices: Indices of the feature maps to return.
         multi_grids: Optional list of output grid side lengths for multi-scale
             feature extraction.
-        frozen_stages: ``-1`` keeps the whole backbone trainable and ``0``
-            freezes the whole backbone for linear probing. A positive value
-            freezes the UPE plus that many leading trunk blocks.
+        freeze_backbone: Freeze the complete encoder for linear probing,
+            matching the explicit switch used by the original UniverSat
+            downstream implementation.
+        frozen_stages: ``-1`` keeps the whole backbone trainable. ``0`` freezes
+            the UPE and a positive value freezes the UPE plus that many leading
+            trunk blocks. Use ``freeze_backbone=True`` to freeze everything.
         compile_encoder: Compile the two encoder stages with dynamic shapes.
             Disabled by default because variable-length satellite time series
             can otherwise trigger expensive recompilations.
@@ -148,11 +150,18 @@ class UniverSatBackbone(BaseModule):
         keep_intermediate: bool = False,
         out_indices: Tuple[int, ...] = (-1,),
         multi_grids: Optional[Sequence[int]] = None,
+        freeze_backbone: bool = False,
         frozen_stages: int = -1,
         compile_encoder: bool = False,
         init_cfg: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(init_cfg=init_cfg)
+        if freeze_backbone and frozen_stages >= 0:
+            raise ValueError(
+                "freeze_backbone=True cannot be combined with partial "
+                "frozen_stages. Set frozen_stages=-1."
+            )
+        self.freeze_backbone = freeze_backbone
         self.frozen_stages = frozen_stages
         self.compile_encoder = compile_encoder
         self.modalities = list(modalities)
@@ -242,17 +251,17 @@ class UniverSatBackbone(BaseModule):
     def _freeze_stages(self):
         """Freeze stages according to ``self.frozen_stages``.
 
-        ``frozen_stages=-1`` disables freezing. ``frozen_stages=0`` freezes
-        the complete encoder. Positive values freeze the UPE and the first N
-        trunk blocks.
+        ``freeze_backbone=True`` freezes the complete encoder.
+        ``frozen_stages=-1`` disables partial freezing, ``0`` freezes the UPE,
+        and a positive value freezes the UPE plus the first N trunk blocks.
         """
-        if self.frozen_stages < 0:
-            return
-
-        if self.frozen_stages == 0:
+        if self.freeze_backbone:
             self.model.eval()
             for param in self.model.parameters():
                 param.requires_grad = False
+            return
+
+        if self.frozen_stages < 0:
             return
 
         # Freeze UPE (stage 0)
@@ -436,16 +445,14 @@ class UniverSatBackbone(BaseModule):
                     f"the {dates_key!r} tensor."
                 )
 
-        grad_context = torch.no_grad() if self.frozen_stages == 0 else nullcontext()
-        with grad_context:
-            latent_grid = self._infer_latent_grid(x)
+        latent_grid = self._infer_latent_grid(x)
 
-            if self.multi_grids:
-                features = [
-                    self._run_once(x, latent_grid, grid_side)
-                    for grid_side in self.multi_grids
-                ]
-                return [features[i] for i in self.out_indices]
+        if self.multi_grids:
+            features = [
+                self._run_once(x, latent_grid, grid_side)
+                for grid_side in self.multi_grids
+            ]
+            return [features[i] for i in self.out_indices]
 
-            output_side = self._compute_output_grid(latent_grid)
-            return [self._run_once(x, latent_grid, output_side)]
+        output_side = self._compute_output_grid(latent_grid)
+        return [self._run_once(x, latent_grid, output_side)]
