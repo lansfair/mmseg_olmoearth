@@ -1,0 +1,93 @@
+{
+  "experiment_id": "geofm_basic_representation",
+  "output_dir": "../../../../work_dirs/geofm_embedding_evaluation",
+  "random_seed": 42,
+  "sample_policy": "strict",
+  "nonfinite_policy": "error",
+  "sampling": {"max_samples_per_class_per_split": null},
+  "seeds": [42, 43, 44, 45, 46],
+  "metadata": {
+    "path": "D:/path/to/evaluation_metadata.csv",
+    "id_column": "sample_id",
+    "label_column": "label",
+    "split_column": "split",
+    "latitude_column": "latitude",
+    "longitude_column": "longitude"
+  },
+  "models": [
+    {
+      "name": "olmoearth",
+      "format": "geofm_manifests",
+      "path": "D:/path/to/olmoearth_export",
+      "splits": ["train", "val", "test"],
+      "id_mode": "sample_id",
+      "pooling": "mean"
+    },
+    {
+      "name": "ours_highres_optical_sar",
+      "format": "geofm_manifests",
+      "path": "D:/path/to/ours_export",
+      "splits": ["train", "val", "test"],
+      "id_mode": "sample_id",
+      "pooling": "mean"
+    }
+  ],
+  "tracks": [
+    {"name": "native", "pca_dim": null},
+    {"name": "pca64", "pca_dim": 64}
+  ],
+  "tasks": {
+    "clustering": {
+      "enabled": true,
+      "max_samples": 50000,
+      "dbscan_max_samples": 10000,
+      "kmeans": {
+        "cluster_counts": ["classes"],
+        "n_init": 20,
+        "max_iter": 300,
+        "silhouette_sample_size": 10000
+      },
+      "dbscan": {
+        "min_samples": [5, 10, 20],
+        "eps_multipliers": [0.9, 1.0, 1.1],
+        "silhouette_sample_size": 10000
+      }
+    },
+    "knn": {
+      "enabled": true,
+      "k_values": [1, 3, 5, 7, 9],
+      "budgets_per_class": [1, 5, 10, 20, 50, "all"],
+      "weights": "uniform"
+    },
+    "linear_probe": {
+      "enabled": true,
+      "budgets_per_class": [1, 5, 10, 20, 50, "all"],
+      "c_values": [0.001, 0.01, 0.1, 1, 10, 100],
+      "cv_folds": 3,
+      "max_iter": 2000,
+      "class_weight": null
+    },
+    "retrieval": {
+      "enabled": true,
+      "gallery_split": "train",
+      "query_split": "test",
+      "k_values": [1, 5, 10],
+      "batch_size": 512
+    },
+    "intrinsic_dimension": {
+      "enabled": true,
+      "tracks": ["native"],
+      "sample_size": 100000,
+      "k_global": 20,
+      "k_local": 100,
+      "fisher_conditional_number": 10,
+      "repeats": 3
+    },
+    "visualization": {
+      "enabled": true,
+      "tracks": ["native", "pca64"],
+      "max_samples": 5000,
+      "dpi": 180
+    }
+  }
+}
