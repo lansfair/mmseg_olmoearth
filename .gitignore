@@ -123,3 +123,4 @@ mmseg/.mim
 
 # Pytorch
 *.pth
+checkpoints/
