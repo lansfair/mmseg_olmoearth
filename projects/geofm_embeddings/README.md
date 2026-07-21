@@ -27,9 +27,7 @@ CopernicusFM、TESSERA 和 UniverSAT。
 需要激活的环境是 `geofm-olmoearth-cu121`。打开一个新终端后，先执行：
 
 ```bash
-export GEOF_ENV=/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121
-source /mnt/ht2-nas2/EO_test/miniconda3/etc/profile.d/conda.sh
-conda activate "$GEOF_ENV"
+conda activate geofm-olmoearth-cu121
 
 export GEOF_REPO=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth
 export GEOF_WEIGHT_ROOT='/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重'
@@ -44,7 +42,7 @@ export GEOF_EMBED_ROOT=$GEOF_RESULT_ROOT/embeddings
 export GEOF_EVAL_ROOT=$GEOF_RESULT_ROOT/evaluation
 export GEOF_PRED_ROOT=$GEOF_RESULT_ROOT/predictions
 export POTSDAM_EXISTING_TIFF=/mnt/htzzb2/EO_test/cyz/Potsdam_embed_copfm
-export PYTHON=$GEOF_ENV/bin/python
+export PYTHON=python
 
 cd "$GEOF_REPO"
 mkdir -p "$GEOF_EMBED_ROOT" "$GEOF_EVAL_ROOT" "$GEOF_PRED_ROOT"
