@@ -60,7 +60,7 @@ data_preprocessor = dict(
 
 train_pipeline = [
     dict(type='LoadSingleRSImageFromFile'),
-    dict(type='LoadDFC2020Annotations'),
+    dict(type='CopernicusBenchLoadDFC2020Annotations'),
     dict(type='AddCopernicusMeta', patch_area=patch_area),
     dict(
         type='NormalizeMultibandImage',
@@ -84,7 +84,7 @@ test_pipeline = [
         mean=s2_band_stats['mean'],
         std=s2_band_stats['std']),
     dict(type='Resize', scale=crop_size, keep_ratio=False),
-    dict(type='LoadDFC2020Annotations'),
+    dict(type='CopernicusBenchLoadDFC2020Annotations'),
     dict(
         type='PackSegInputs',
         meta_keys=('img_path', 'seg_map_path', 'ori_shape', 'img_shape',

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import sys
+import types
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -81,6 +84,19 @@ def _load_object(path: str):
         from torch.distributed._tensor import distribute_tensor
 
         distributed_tensor.distribute_tensor = distribute_tensor
+    # ``olmoearth_pretrain.evals.models.__init__`` imports every baseline,
+    # including training-only modules that require olmo-core.  Embedding
+    # inference needs just the requested wrapper, so expose the package path as
+    # a lightweight namespace and let importlib load that submodule directly.
+    models_namespace = "olmoearth_pretrain.evals.models"
+    if models_namespace not in sys.modules:
+        evals_package = importlib.import_module("olmoearth_pretrain.evals")
+        namespace = types.ModuleType(models_namespace)
+        namespace.__package__ = models_namespace
+        namespace.__path__ = [
+            str(Path(evals_package.__file__).resolve().parent / "models")
+        ]
+        sys.modules[models_namespace] = namespace
     module_name, object_name = path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), object_name)
 

@@ -302,7 +302,7 @@ class LoadPastisProcessedAnnotations(BaseTransform):
         return results
 
 
-@TRANSFORMS.register_module()
+@TRANSFORMS.register_module(name="CopernicusBenchLoadDFC2020Annotations")
 class LoadDFC2020Annotations(BaseTransform):
     """Load and remap original DFC2020 labels to 8 valid classes."""
 
