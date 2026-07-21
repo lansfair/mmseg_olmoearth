@@ -199,7 +199,14 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
         self.uses_spatial_pool_argument = uses_spatial_pool_argument
         self.freeze = freeze
         wrapper_class = _load_object(wrapper_path)
-        self.wrapper = wrapper_class(**(wrapper_kwargs or {}))
+        wrapper_kwargs = dict(wrapper_kwargs or {})
+        if preset == "galileo" and "pretrained_path" in wrapper_kwargs:
+            from upath import UPath
+
+            wrapper_kwargs["pretrained_path"] = UPath(
+                wrapper_kwargs["pretrained_path"]
+            )
+        self.wrapper = wrapper_class(**wrapper_kwargs)
         if freeze:
             self.wrapper.requires_grad_(False)
             self.wrapper.eval()

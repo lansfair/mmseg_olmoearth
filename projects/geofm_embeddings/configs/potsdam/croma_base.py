@@ -14,7 +14,7 @@ model = dict(
                 size="base",
                 load_directory=(
                     "/mnt/ht2-nas2/EO_test/wyf/embedding_code/"
-                    "地球基础模型权重/geofm/croma"
+                    "地球基础模型权重/geofm/croma/base"
                 ),
             ),
             freeze=True,
