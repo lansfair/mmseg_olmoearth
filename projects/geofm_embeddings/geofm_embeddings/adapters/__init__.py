@@ -4,6 +4,7 @@ from .dinov3 import DINOv3Adapter
 from .olmoearth import OlmoEarthAdapter
 from .official_wrapper import OfficialOlmoEarthWrapperAdapter
 from .tessera import TESSERAAdapter
+from .universat import UniverSatAdapter
 
 __all__ = [
     "BaseGeoFMAdapter",
@@ -12,4 +13,5 @@ __all__ = [
     "OlmoEarthAdapter",
     "OfficialOlmoEarthWrapperAdapter",
     "TESSERAAdapter",
+    "UniverSatAdapter",
 ]

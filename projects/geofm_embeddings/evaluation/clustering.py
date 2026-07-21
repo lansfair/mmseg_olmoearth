@@ -4,7 +4,6 @@ from typing import Any
 
 import numpy as np
 from sklearn.cluster import DBSCAN, KMeans
-from sklearn.metrics import adjusted_rand_score
 from sklearn.neighbors import NearestNeighbors
 
 from .metrics import cluster_metrics
@@ -14,44 +13,39 @@ def evaluate_kmeans(
     values: np.ndarray,
     labels: np.ndarray,
     config: dict[str, Any],
-    seeds: list[int],
+    seed: int,
 ) -> list[dict[str, Any]]:
     class_count = len(np.unique(labels))
     requested = config.get("cluster_counts", [class_count])
     counts = [class_count if value == "classes" else int(value) for value in requested]
     rows: list[dict[str, Any]] = []
-    assignments: dict[int, list[np.ndarray]] = {count: [] for count in counts}
     for count in counts:
-        for seed in seeds:
-            model = KMeans(
-                n_clusters=count,
-                n_init=int(config.get("n_init", 20)),
-                max_iter=int(config.get("max_iter", 300)),
-                random_state=seed,
-            )
-            predicted = model.fit_predict(values)
-            assignments[count].append(predicted)
-            metrics = cluster_metrics(
-                values,
-                labels,
-                predicted,
-                int(config.get("silhouette_sample_size", 10000)),
-                seed,
-            )
-            rows.append({"algorithm": "kmeans", "seed": seed, "parameter": count, **metrics})
-
-        stability = []
-        for i in range(len(assignments[count])):
-            for j in range(i + 1, len(assignments[count])):
-                stability.append(adjusted_rand_score(assignments[count][i], assignments[count][j]))
-        value = float(np.mean(stability)) if stability else np.nan
-        for row in rows:
-            if row["algorithm"] == "kmeans" and row["parameter"] == count:
-                row["stability_ari"] = value
+        model = KMeans(
+            n_clusters=count,
+            n_init=int(config.get("n_init", 20)),
+            max_iter=int(config.get("max_iter", 300)),
+            random_state=seed,
+        )
+        predicted = model.fit_predict(values)
+        metrics = cluster_metrics(
+            values,
+            labels,
+            predicted,
+            int(config.get("silhouette_sample_size", 10000)),
+            seed,
+        )
+        rows.append(
+            {"algorithm": "kmeans", "seed": seed, "parameter": count, **metrics}
+        )
     return rows
+
+
 def estimate_dbscan_eps(values: np.ndarray, min_samples: int) -> float:
     neighbors = NearestNeighbors(n_neighbors=min_samples, metric="cosine", algorithm="brute")
-    distances = neighbors.fit(values).kneighbors(return_distance=True)[0][:, -1]
+    # DBSCAN counts the point itself in ``min_samples``. Passing ``values``
+    # explicitly retains the zero-distance self neighbor and therefore uses
+    # the matching k-distance instead of the next farther neighbor.
+    distances = neighbors.fit(values).kneighbors(values, return_distance=True)[0][:, -1]
     curve = np.sort(distances)
     if len(curve) < 3 or np.allclose(curve[0], curve[-1]):
         return float(np.quantile(curve, 0.9))

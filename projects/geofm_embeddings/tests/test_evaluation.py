@@ -2,192 +2,218 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
-import pandas as pd
-import rasterio
 import torch
-from rasterio.transform import from_origin
 
-from projects.geofm_embeddings.evaluation.clustering import (
-    evaluate_kmeans,
+from projects.geofm_embeddings.evaluation.bundle import (
+    bundle_paths,
+    load_bundle_split,
 )
-from projects.geofm_embeddings.evaluation.io import load_embedding
-from projects.geofm_embeddings.evaluation.preprocessing import l2
-from projects.geofm_embeddings.evaluation.retrieval import (
-    evaluate_semantic_retrieval,
+from projects.geofm_embeddings.evaluation.bundle_tasks import (
+    gather_features,
+    run_cosine_retrieval,
+    run_dbscan,
+    run_kmeans,
 )
-from projects.geofm_embeddings.evaluation.runner import (
-    run_experiment,
-)
-from projects.geofm_embeddings.evaluation.supervised import (
-    evaluate_knn,
-    evaluate_linear_probe,
-)
+from projects.geofm_embeddings.evaluation.linear import run_linear
+from projects.geofm_embeddings.evaluation.knn import run_knn
 
 
-def _synthetic_data():
-    rng = np.random.default_rng(7)
-    labels = np.repeat(np.asarray(["a", "b", "c"]), 20)
-    centers = np.eye(3, 8, dtype=np.float32) * 7
-    values = centers[np.repeat(np.arange(3), 20)]
-    values += rng.normal(scale=0.2, size=values.shape)
-    split = np.tile(np.asarray(["train"] * 14 + ["test"] * 6), 3)
-    ids = np.asarray([f"sample_{index:03d}" for index in range(len(labels))])
-    return values.astype(np.float32), labels, split, ids
+def _directory(root, dataset="example", model="model"):
+    path = root / dataset / model
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def test_sample_level_evaluation_modules() -> None:
-    values, labels, split, ids = _synthetic_data()
-    normalized = l2(values)
-    clustering = evaluate_kmeans(
-        normalized, labels, {"cluster_counts": ["classes"], "n_init": 5}, [1, 2]
-    )
-    knn = evaluate_knn(
-        normalized, labels, split, {"k_values": [3], "budgets_per_class": [5]}, [1]
-    )
-    linear = evaluate_linear_probe(
-        values,
-        labels,
-        split,
-        {"budgets_per_class": [5], "c_values": [0.1, 1], "cv_folds": 2},
-        [1],
-    )
-    retrieval, details = evaluate_semantic_retrieval(
-        normalized,
-        labels,
-        ids,
-        split,
-        {"gallery_split": "train", "query_split": "test", "k_values": [1, 5]},
-    )
-    assert np.mean([row["ari"] for row in clustering]) > 0.9
-    assert knn[0]["macro_f1"] > 0.9
-    assert linear[0]["macro_f1"] > 0.9
-    assert retrieval[0]["hit_rate_at_1"] > 0.9
-    assert len(details) == int(np.sum(split == "test"))
-
-
-def test_geofm_manifest_loads_variable_size_dense_geotiffs(tmp_path) -> None:
-    records = []
-    for index, shape in enumerate(((3, 4), (5, 2))):
-        sample_id = f"dense_{index}"
-        relative = f"test/{sample_id}/embedding.tif"
-        path = tmp_path / relative
-        path.parent.mkdir(parents=True)
-        array = np.stack([
-            np.full(shape, index + 1, dtype=np.float32),
-            np.full(shape, index + 2, dtype=np.float32),
-        ])
-        with rasterio.open(
-            path,
-            "w",
-            driver="GTiff",
-            height=shape[0],
-            width=shape[1],
-            count=2,
-            dtype="float32",
-            transform=from_origin(0, shape[0], 1, 1),
-        ) as destination:
-            destination.write(array)
-        records.append({"sample_id": sample_id, "embedding_path": relative})
-    (tmp_path / "test.json").write_text(
-        json.dumps({
-            "format": "geofm_embedding_manifest_v1",
-            "split": "test",
-            "count": len(records),
-            "samples": records,
-        }),
-        encoding="utf-8",
-    )
-    table = load_embedding({
-        "name": "dense_model",
-        "format": "geofm_manifests",
-        "path": str(tmp_path),
-        "splits": ["test"],
-        "pooling": "stats",
-    }, tmp_path)
-    assert table.values.shape == (2, 8)
-    assert table.sample_ids.tolist() == ["dense_0", "dense_1"]
-
-
-def test_manifest_to_runner_end_to_end(tmp_path) -> None:
-    values, labels, split, ids = _synthetic_data()
-    export_root = tmp_path / "export"
-    records_by_split = {"train": [], "test": []}
-    for value, label, split_name, sample_id in zip(values, labels, split, ids):
-        relative = f"{split_name}/{sample_id}/embedding.pt"
-        path = export_root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(torch.from_numpy(value), path)
-        records_by_split[split_name].append({
-            "sample_id": sample_id,
-            "embedding_path": relative,
-        })
-    for split_name, records in records_by_split.items():
-        (export_root / f"{split_name}.json").write_text(
-            json.dumps({
-                "format": "geofm_embedding_manifest_v1",
-                "split": split_name,
-                "count": len(records),
-                "samples": records,
-            }),
-            encoding="utf-8",
+def _write_dense_group(root) -> None:
+    directory = _directory(root)
+    labels = torch.arange(8).view(1, 1, 8).expand(4, 8, 8) % 4
+    embeddings = torch.nn.functional.one_hot(labels, num_classes=4).float()
+    for split in ("train", "valid", "test"):
+        torch.save(
+            {"embeddings": embeddings, "labels": labels}, directory / f"{split}.pt"
         )
-    metadata_path = tmp_path / "metadata.csv"
-    pd.DataFrame({"sample_id": ids, "label": labels, "split": split}).to_csv(
-        metadata_path, index=False
+
+
+def _write_global_group(root) -> None:
+    directory = _directory(root, dataset="scenes")
+    labels = torch.arange(40) % 4
+    embeddings = torch.nn.functional.one_hot(labels, num_classes=4).float()
+    for split in ("train", "valid", "test"):
+        torch.save(
+            {"embeddings": embeddings, "labels": labels}, directory / f"{split}.pt"
+        )
+
+
+def test_loader_supports_dense_and_global_bundles(tmp_path) -> None:
+    _write_dense_group(tmp_path)
+    _write_global_group(tmp_path)
+    dense = load_bundle_split(
+        bundle_paths(tmp_path, dataset="example", model="model")["test"]
     )
-    config = {
-        "experiment_id": "manifest_smoke",
-        "output_dir": str(tmp_path / "results"),
-        "random_seed": 3,
-        "seeds": [3],
-        "metadata": {
-            "path": str(metadata_path),
-            "id_column": "sample_id",
-            "label_column": "label",
-            "split_column": "split",
-        },
-        "models": [{
-            "name": "exported_model",
-            "format": "geofm_manifests",
-            "path": str(export_root),
-            "splits": ["train", "test"],
-        }],
-        "tracks": [{"name": "native", "pca_dim": None}],
-        "tasks": {
-            "clustering": {
-                "enabled": True,
-                "max_samples": 60,
-                "dbscan_max_samples": 60,
-                "kmeans": {"cluster_counts": ["classes"], "n_init": 2},
-                "dbscan": {"min_samples": [3], "eps_multipliers": [1.0]},
-            },
-            "knn": {
-                "enabled": True,
-                "k_values": [3],
-                "budgets_per_class": [5],
-            },
-            "linear_probe": {
-                "enabled": True,
-                "budgets_per_class": [5],
-                "c_values": [0.1, 1.0],
-                "cv_folds": 2,
-            },
-            "retrieval": {
-                "enabled": True,
-                "gallery_split": "train",
-                "query_split": "test",
-                "k_values": [1, 5],
-            },
-            "intrinsic_dimension": {"enabled": False},
-            "visualization": {"enabled": True, "max_samples": 60},
-        },
-    }
-    config_path = tmp_path / "experiment.json"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
-    run_dir = run_experiment(config_path)
-    status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
-    assert status["state"] == "complete"
-    assert (run_dir / "retrieval.csv").exists()
-    assert (run_dir / "retrieval_details_exported_model_native.csv").exists()
-    assert (run_dir / "figures" / "pca_exported_model_native.png").exists()
+    global_split = load_bundle_split(
+        bundle_paths(tmp_path, dataset="scenes", model="model")["test"]
+    )
+    assert dense.tensor_layout == "dense_grid_labels"
+    assert global_split.tensor_layout == "sample_vectors"
+
+
+def test_dense_and_global_feature_gathering(tmp_path) -> None:
+    _write_dense_group(tmp_path)
+    _write_global_group(tmp_path)
+    dense = load_bundle_split(
+        bundle_paths(tmp_path, dataset="example", model="model")["test"]
+    )
+    global_split = load_bundle_split(
+        bundle_paths(tmp_path, dataset="scenes", model="model")["test"]
+    )
+    dense_features, dense_unit = gather_features(dense, torch.arange(16).numpy())
+    global_features, global_unit = gather_features(
+        global_split, torch.arange(16).numpy()
+    )
+    assert dense_features.shape == (16, 4)
+    assert global_features.shape == (16, 4)
+    assert dense_unit == "pixel"
+    assert global_unit == "sample"
+
+
+def test_three_diagnostics_use_independent_reports(tmp_path) -> None:
+    _write_global_group(tmp_path)
+    output = tmp_path / "results"
+    kmeans = run_kmeans(
+        root=tmp_path,
+        dataset="scenes",
+        model="model",
+        output_dir=output / "kmeans",
+        per_class=5,
+        n_init=2,
+        max_iter=20,
+    )
+    dbscan = run_dbscan(
+        root=tmp_path,
+        dataset="scenes",
+        model="model",
+        output_dir=output / "dbscan",
+        per_class=5,
+        min_samples=[2],
+        eps_multipliers=[1.0],
+    )
+    retrieval = run_cosine_retrieval(
+        root=tmp_path,
+        dataset="scenes",
+        model="model",
+        output_dir=output / "cosine_retrieval",
+        gallery_per_class=5,
+        query_per_class=3,
+        k_values=[1, 5],
+    )
+    reports = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (kmeans, dbscan, retrieval)
+    ]
+    assert [report["task"] for report in reports] == [
+        "kmeans",
+        "dbscan",
+        "cosine_retrieval",
+    ]
+    assert all(report["dataset"] == "scenes" for report in reports)
+    assert all(report["seed"] == 42 for report in reports)
+
+
+def test_knn_has_its_own_paper_style_report(tmp_path) -> None:
+    _write_global_group(tmp_path)
+    (tmp_path / "scenes" / "model" / "test.pt").unlink()
+    report_path = run_knn(
+        root=tmp_path,
+        dataset="scenes",
+        model="model",
+        output_dir=tmp_path / "results" / "knn",
+        split_name="valid",
+        k=2,
+        batch_size=4,
+        device="cpu",
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["task"] == "knn"
+    assert report["config"]["metric"] == "cosine"
+    assert report["config"]["vote"] == "softmax_weighted"
+    assert report["split"] == "valid"
+    assert set(report["input_audit"]) == {"train", "valid"}
+
+
+def test_linear_report_is_dataset_independent(tmp_path, monkeypatch) -> None:
+    _write_dense_group(tmp_path)
+
+    def fake_train_probe(**kwargs):
+        lr = kwargs["lr"]
+        return {
+            "lr": lr,
+            "seed": 42,
+            "epochs": kwargs["epochs"],
+            "eval_interval": kwargs["eval_interval"],
+            "batch_size": kwargs["batch_size"],
+            "sample_limit": kwargs["sample_limit"],
+            "best_epoch": 1,
+            "best_valid_miou": 1.0 - abs(lr - 0.2),
+            "evaluation_miou": 0.5,
+            "elapsed_seconds": 0.01,
+        }
+
+    monkeypatch.setattr(
+        "projects.geofm_embeddings.evaluation.linear.train_probe",
+        fake_train_probe,
+    )
+    report_path = run_linear(
+        root=tmp_path,
+        dataset="example",
+        model="model",
+        output_dir=tmp_path / "results" / "linear",
+        learning_rates=[0.1, 0.2, 0.3],
+        device="cpu",
+        epochs=1,
+        eval_interval=1,
+        batch_size=1,
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["task"] == "linear"
+    assert report["dataset"] == "example"
+    assert report["model"] == "model"
+    assert report["num_classes"] == 4
+    assert report["selected_result"]["lr"] == 0.2
+
+
+def test_linear_script_routes_sample_labels_to_classification(
+    tmp_path, monkeypatch
+) -> None:
+    _write_global_group(tmp_path)
+    (tmp_path / "scenes" / "model" / "test.pt").unlink()
+
+    def fake_train_probe(**kwargs):
+        return {
+            "lr": kwargs["lr"],
+            "best_valid_accuracy": 0.75,
+            "evaluation_accuracy": 0.7,
+        }
+
+    monkeypatch.setattr(
+        "projects.geofm_embeddings.evaluation.linear.train_probe",
+        fake_train_probe,
+    )
+    report_path = run_linear(
+        root=tmp_path,
+        dataset="scenes",
+        model="model",
+        output_dir=tmp_path / "results" / "linear_classification",
+        learning_rates=[0.001],
+        evaluation_split="valid",
+        device="cpu",
+        epochs=1,
+        eval_interval=1,
+        batch_size=1,
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["linear_mode"] == "classification"
+    assert report["evaluation_split"] == "valid"
+    assert report["evaluation_is_independent_test"] is False
+    assert report["selection_uses_evaluation_split"] is True
+    assert report["evaluation_metric"] == "accuracy"
+    assert report["evaluation_score"] == 0.7

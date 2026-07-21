@@ -5,6 +5,7 @@ from .adapters import (
     OlmoEarthAdapter,
     OfficialOlmoEarthWrapperAdapter,
     TESSERAAdapter,
+    UniverSatAdapter,
 )
 from .backbone import GeoFMBackbone
 from .data_preprocessor import GeoFMDataPreprocessor
@@ -29,5 +30,6 @@ __all__ = [
     "OlmoEarthAdapter",
     "OfficialOlmoEarthWrapperAdapter",
     "TESSERAAdapter",
+    "UniverSatAdapter",
     "PrecomputedEmbeddingBackbone",
 ]

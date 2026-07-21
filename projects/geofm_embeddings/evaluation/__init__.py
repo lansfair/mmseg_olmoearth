@@ -1,5 +1,14 @@
-"""Model-agnostic evaluation for precomputed GeoFM embeddings."""
+"""Dataset-independent evaluation tasks for PT embedding bundles."""
 
-from .runner import run_experiment
+from .bundle_tasks import run_cosine_retrieval, run_dbscan, run_kmeans
+from .linear import run_linear, run_linear_train_only
+from .knn import run_knn
 
-__all__ = ["run_experiment"]
+__all__ = [
+    "run_cosine_retrieval",
+    "run_dbscan",
+    "run_kmeans",
+    "run_linear",
+    "run_linear_train_only",
+    "run_knn",
+]

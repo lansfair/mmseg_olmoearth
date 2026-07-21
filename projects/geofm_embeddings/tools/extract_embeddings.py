@@ -22,6 +22,26 @@ def _sample_metadata(data_samples, batch_size: int) -> list[dict[str, Any]]:
     return [dict(sample.metainfo) for sample in data_samples]
 
 
+def _sample_label(data_samples, index: int) -> torch.Tensor | None:
+    """Read scalar classification or dense segmentation targets."""
+
+    if data_samples is None:
+        return None
+    sample = data_samples[index]
+    semantic = getattr(sample, "gt_sem_seg", None)
+    if semantic is not None and hasattr(semantic, "data"):
+        label = semantic.data
+        if label.ndim == 3 and label.shape[0] == 1:
+            label = label[0]
+        return label.detach().to(torch.int64).cpu()
+    classification = getattr(sample, "gt_label", None)
+    if classification is not None:
+        label = getattr(classification, "label", classification)
+        if isinstance(label, torch.Tensor) and label.numel() == 1:
+            return label.detach().reshape(()).to(torch.int64).cpu()
+    return None
+
+
 def _input_hw(inputs: Any, metadata: dict[str, Any]) -> tuple[int, int] | None:
     shape = metadata.get("img_shape") or metadata.get("ori_shape")
     if shape is not None:
@@ -130,6 +150,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--precision", choices=("fp32", "fp16", "bf16"), default="bf16")
     parser.add_argument("--l2-normalize", action="store_true")
+    parser.add_argument(
+        "--save-labels",
+        action="store_true",
+        help="Save gt_sem_seg/gt_label beside every embedding for PT bundling.",
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--cfg-options", nargs="+", action=DictAction)
     return parser.parse_args()
@@ -212,14 +237,26 @@ def main() -> None:
                     item_metadata,
                     source_hw,
                 )
-                records.append(
-                    {
-                        "sample_id": sample_id,
-                        "embedding_path": relative_path.as_posix(),
-                        "embedding_shape": list(embeddings[item_index].shape),
-                        **common_metadata,
-                    }
-                )
+                record = {
+                    "sample_id": sample_id,
+                    "embedding_path": relative_path.as_posix(),
+                    "embedding_shape": list(embeddings[item_index].shape),
+                    **common_metadata,
+                }
+                if source_hw is not None:
+                    record["source_shape"] = list(source_hw)
+                if args.save_labels:
+                    label = _sample_label(data_samples, item_index)
+                    if label is None:
+                        raise RuntimeError(
+                            f"{sample_id}: --save-labels requested but the data "
+                            "sample has no gt_sem_seg or gt_label"
+                        )
+                    label_path = Path(args.split) / sample_id / "label.pt"
+                    torch.save(label, output_root / label_path)
+                    record["label_path"] = label_path.as_posix()
+                    record["label_shape"] = list(label.shape)
+                records.append(record)
                 processed_count += 1
             print(
                 f"\rExtracted {processed_count} samples from {args.split}",
