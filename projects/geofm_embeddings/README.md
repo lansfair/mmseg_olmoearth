@@ -10,24 +10,54 @@
 当前适配器包括 OLMoEarth、官方 OLMoEarth wrapper、DINOv3、
 CopernicusFM、TESSERA 和 UniverSAT。
 
-## 1. 服务器固定路径
+## 1. 服务器环境与固定路径
 
-以下路径已在当前 `htzzb2` 服务器核对。打开一个新终端后，先执行一次：
+以下环境和路径已在当前 `htzzb2` 服务器核对：
+
+| 项目 | 服务器路径 |
+| --- | --- |
+| Conda 环境 | `/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121` |
+| 地球基础模型权重根目录 | `/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重` |
+| 数据集根目录 | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat` |
+| PASTIS-R | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R` |
+| Potsdam | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/potsdam` |
+| 项目仓库 | `/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth` |
+
+需要激活的环境是 `geofm-olmoearth-cu121`。打开一个新终端后，先执行：
 
 ```bash
 export GEOF_ENV=/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121
+source /mnt/ht2-nas2/EO_test/miniconda3/etc/profile.d/conda.sh
+conda activate "$GEOF_ENV"
+
 export GEOF_REPO=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth
-export GEOF_WEIGHT_ROOT='/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重/geofm'
+export GEOF_WEIGHT_ROOT='/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重'
+export GEOF_MODEL_ROOT="$GEOF_WEIGHT_ROOT/geofm"
+export GEOF_DATA_ROOT=/mnt/ht2-nas2/EO_test/openmmlab-archive/dat
+export PASTIS_ROOT="$GEOF_DATA_ROOT/PASTIS-R"
+export POTSDAM_ROOT="$GEOF_DATA_ROOT/potsdam"
 export GEOF_RESULT_ROOT=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/results
 export GEOF_EMBED_ROOT=$GEOF_RESULT_ROOT/embeddings
 export GEOF_EVAL_ROOT=$GEOF_RESULT_ROOT/evaluation
 export GEOF_PRED_ROOT=$GEOF_RESULT_ROOT/predictions
-export POTSDAM_ROOT=/mnt/ht2-nas2/EO_test/mty/potsdam
 export POTSDAM_EXISTING_TIFF=/mnt/htzzb2/EO_test/cyz/Potsdam_embed_copfm
 export PYTHON=$GEOF_ENV/bin/python
 
 cd "$GEOF_REPO"
 mkdir -p "$GEOF_EMBED_ROOT" "$GEOF_EVAL_ROOT" "$GEOF_PRED_ROOT"
+```
+
+可用下面的命令确认没有误用 `(base)` 环境：
+
+```bash
+which python
+$PYTHON -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+```
+
+`which python` 应输出：
+
+```text
+/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121/bin/python
 ```
 
 已核对的 OLMoEarth Base 权重为：
@@ -37,7 +67,16 @@ mkdir -p "$GEOF_EMBED_ROOT" "$GEOF_EVAL_ROOT" "$GEOF_PRED_ROOT"
 /mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重/geofm/olmoearth/base/weights.pth
 ```
 
-后文统一使用 `$PYTHON`，因此不会误用服务器的 `(base)` 环境。
+PASTIS-R 的当前数据目录为：
+
+```text
+/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R
+/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R/dataset_for_OEF_64/pastis_r_train
+```
+
+后文统一使用 `$PYTHON`，因此不会误用服务器的 `(base)` 环境。模型配置中的
+checkpoint 路径统一从 `$GEOF_MODEL_ROOT` 取，数据配置中的 `data_root` 统一指向
+`$GEOF_DATA_ROOT` 下对应的数据集目录。
 
 ## 2. 总体流程
 
@@ -107,8 +146,8 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/extract_embeddings.py" \
   --dense-format pt \
   --save-labels \
   --cfg-options \
-  "model.backbone.adapter.model_config_path=$GEOF_WEIGHT_ROOT/olmoearth/base/config.json" \
-  "model.backbone.adapter.init_cfg.checkpoint=$GEOF_WEIGHT_ROOT/olmoearth/base/weights.pth" \
+  "model.backbone.adapter.model_config_path=$GEOF_MODEL_ROOT/olmoearth/base/config.json" \
+  "model.backbone.adapter.init_cfg.checkpoint=$GEOF_MODEL_ROOT/olmoearth/base/weights.pth" \
   "train_dataloader.dataset.data_root=$POTSDAM_ROOT" \
   train_dataloader.batch_size=4
 ```
@@ -121,8 +160,8 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/extract_embeddings.py" \
 - 无标签 split 不添加 `--save-labels`，其数据 pipeline 也不能包含
   `LoadAnnotations`。
 - `--split train/val/test` 决定读取 config 中对应的 dataloader。
-- 抽取其他模型时，换用相应 config，并把权重指向 `$GEOF_WEIGHT_ROOT` 下
-  对应模型目录。
+- 抽取其他模型时，换用相应 config，并把权重指向 `$GEOF_MODEL_ROOT` 下
+  对应模型目录；`$GEOF_WEIGHT_ROOT` 保留为用户给出的完整权重根目录。
 
 ## 5. 从 manifest 汇总为 PT
 
