@@ -88,15 +88,28 @@ def _load_object(path: str):
     # including training-only modules that require olmo-core.  Embedding
     # inference needs just the requested wrapper, so expose the package path as
     # a lightweight namespace and let importlib load that submodule directly.
-    models_namespace = "olmoearth_pretrain.evals.models"
-    if models_namespace not in sys.modules:
-        evals_package = importlib.import_module("olmoearth_pretrain.evals")
-        namespace = types.ModuleType(models_namespace)
-        namespace.__package__ = models_namespace
-        namespace.__path__ = [
-            str(Path(evals_package.__file__).resolve().parent / "models")
-        ]
-        sys.modules[models_namespace] = namespace
+    olmoearth_package = importlib.import_module("olmoearth_pretrain")
+    package_root = Path(olmoearth_package.__file__).resolve().parent
+    lightweight_namespaces = {
+        "olmoearth_pretrain.evals.models": package_root / "evals" / "models",
+        "olmoearth_pretrain.train": package_root / "train",
+    }
+    for namespace_name, namespace_path in lightweight_namespaces.items():
+        if namespace_name not in sys.modules:
+            namespace = types.ModuleType(namespace_name)
+            namespace.__package__ = namespace_name
+            namespace.__path__ = [str(namespace_path)]
+            sys.modules[namespace_name] = namespace
+    if "olmo_core" not in sys.modules:
+        core_module = types.ModuleType("olmo_core")
+        core_module.__path__ = []
+        core_utils = types.ModuleType("olmo_core.utils")
+        core_utils.get_default_device = lambda: torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        core_module.utils = core_utils
+        sys.modules["olmo_core"] = core_module
+        sys.modules["olmo_core.utils"] = core_utils
     module_name, object_name = path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), object_name)
 

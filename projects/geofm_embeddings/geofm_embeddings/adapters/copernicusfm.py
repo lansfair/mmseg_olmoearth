@@ -153,9 +153,8 @@ class CopernicusFMAdapter(BaseGeoFMAdapter):
             for name in ("weight", "bias")
             if f"fc_norm.{name}" in state_dict
         }
-        if len(norm_state) != 2:
-            raise RuntimeError("Checkpoint does not contain fc_norm weight and bias.")
-        self.fc_norm.load_state_dict(norm_state, strict=True)
+        if len(norm_state) == 2:
+            self.fc_norm.load_state_dict(norm_state, strict=True)
         if self.freeze:
             self.backbone.requires_grad_(False)
             self.fc_norm.requires_grad_(False)
