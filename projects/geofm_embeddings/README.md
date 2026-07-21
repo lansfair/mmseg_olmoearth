@@ -42,7 +42,6 @@ export GEOF_EMBED_ROOT=$GEOF_RESULT_ROOT/embeddings
 export GEOF_EVAL_ROOT=$GEOF_RESULT_ROOT/evaluation
 export GEOF_PRED_ROOT=$GEOF_RESULT_ROOT/predictions
 export POTSDAM_EXISTING_TIFF=/mnt/htzzb2/EO_test/cyz/Potsdam_embed_copfm
-export PYTHON=python
 
 cd "$GEOF_REPO"
 mkdir -p "$GEOF_EMBED_ROOT" "$GEOF_EVAL_ROOT" "$GEOF_PRED_ROOT"
@@ -52,7 +51,7 @@ mkdir -p "$GEOF_EMBED_ROOT" "$GEOF_EVAL_ROOT" "$GEOF_PRED_ROOT"
 
 ```bash
 which python
-$PYTHON -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
 `which python` 应输出：
@@ -75,7 +74,7 @@ PASTIS-R 的原始数据与处理后数据目录分别为：
 /mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R/dataset_for_OEF_64
 ```
 
-后文统一使用 `$PYTHON`，因此不会误用服务器的 `(base)` 环境。模型配置中的
+后文统一直接使用 `python`，因此不会误用服务器的 `(base)` 环境。模型配置中的
 checkpoint 路径统一从 `$GEOF_MODEL_ROOT` 取，数据配置中的 `data_root` 统一指向
 `$GEOF_DATA_ROOT` 下对应的数据集目录。
 
@@ -84,10 +83,10 @@ checkpoint 路径统一从 `$GEOF_MODEL_ROOT` 取，数据配置中的 `data_roo
 PASTIS-R 不能直接把原始 `DATA_S1A`、`DATA_S1D`、`DATA_S2` 和标注目录交给
 后续 embedding 脚本。应先使用 `olmoearth_pretrain` 自带的
 `pastis_processor.py` 生成官方评测格式。该模块已经安装在
-`geofm-olmoearth-cu121` 环境中，因此仍使用上面的 `$PYTHON`：
+`geofm-olmoearth-cu121` 环境中，因此直接使用 `python`：
 
 ```bash
-$PYTHON -m olmoearth_pretrain.evals.datasets.pastis_processor \
+python -m olmoearth_pretrain.evals.datasets.pastis_processor \
   --data_dir "$PASTIS_RAW_ROOT" \
   --output_dir "$PASTIS_ROOT"
 ```
@@ -189,7 +188,7 @@ bundle 还可包含：
 下面以服务器上的 Potsdam 和 OLMoEarth Base 为例抽取训练集稠密特征：
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/extract_embeddings.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/extract_embeddings.py" \
   "$GEOF_REPO/projects/geofm_embeddings/configs/olmoearth/olmoearth-base_potsdam-rgb.py" \
   "$GEOF_RESULT_ROOT/potsdam_export" \
   --split train \
@@ -221,7 +220,7 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/extract_embeddings.py" \
 ```bash
 mkdir -p "$GEOF_EMBED_ROOT/potsdam/olmoearth_base"
 
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
   "$GEOF_RESULT_ROOT/potsdam_export/train.json" \
   "$GEOF_EMBED_ROOT/potsdam/olmoearth_base/train.pt"
 ```
@@ -231,7 +230,7 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
 ### 5.2 无标签数据
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
   "$GEOF_RESULT_ROOT/potsdam_export/test.json" \
   "$GEOF_EMBED_ROOT/potsdam/olmoearth_base/test.pt" \
   --allow-unlabeled
@@ -251,11 +250,11 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
 ```bash
 mkdir -p "$GEOF_EMBED_ROOT/potsdam/copernicusfm"
 
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
   "$POTSDAM_EXISTING_TIFF/train.json" \
   "$GEOF_EMBED_ROOT/potsdam/copernicusfm/train.pt"
 
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
   "$POTSDAM_EXISTING_TIFF/val.json" \
   "$GEOF_EMBED_ROOT/potsdam/copernicusfm/valid.pt"
 ```
@@ -280,7 +279,7 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/pack_embedding_bundle.py" \
 ## 6. Linear：有 valid 时自动选择学习率和 epoch
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_linear.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_linear.py" \
   potsdam olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
@@ -308,7 +307,7 @@ $GEOF_EVAL_ROOT/potsdam/olmoearth_base/linear/best_probe.pth
 没有有标签 valid 时，只读取 `train.pt`：
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_linear.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_linear.py" \
   potsdam olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
@@ -330,7 +329,7 @@ $GEOF_EVAL_ROOT/potsdam/olmoearth_base/linear_train_only/linear_probe.pth
 先按第 5.2 节生成不含 labels 的 PT，再运行：
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/predict_linear.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/predict_linear.py" \
   "$GEOF_EVAL_ROOT/potsdam/olmoearth_base/linear_train_only/linear_probe.pth" \
   "$GEOF_EMBED_ROOT/potsdam/olmoearth_base/test.pt" \
   "$GEOF_PRED_ROOT/potsdam/olmoearth_base/test" \
@@ -355,7 +354,7 @@ argmax：
 ## 9. kNN 分类
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_knn.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_knn.py" \
   scene_classification olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
@@ -374,7 +373,7 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_knn.py" \
 ## 10. K-means
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_kmeans.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_kmeans.py" \
   potsdam olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
@@ -393,7 +392,7 @@ K-means 算法本身无监督，但当前脚本需要标签做均衡采样和质
 ## 11. DBSCAN
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_dbscan.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_dbscan.py" \
   potsdam olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
@@ -413,7 +412,7 @@ $PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_dbscan.py" \
 ## 12. 余弦语义检索
 
 ```bash
-$PYTHON "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_cosine_retrieval.py" \
+python "$GEOF_REPO/projects/geofm_embeddings/tools/evaluate_cosine_retrieval.py" \
   potsdam olmoearth_base \
   --embedding-root "$GEOF_EMBED_ROOT" \
   --output-root "$GEOF_EVAL_ROOT" \
