@@ -4,7 +4,7 @@ from mmseg.datasets import BaseSegDataset
 from mmseg.registry import DATASETS
 
 
-@DATASETS.register_module()
+@DATASETS.register_module(name="CopernicusBenchDFC2020S2Dataset")
 class DFC2020S2Dataset(BaseSegDataset):
     """DFC2020 S2 semantic segmentation dataset for MMSegmentation.
 

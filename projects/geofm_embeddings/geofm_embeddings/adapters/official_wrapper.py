@@ -75,6 +75,12 @@ def _load_object(path: str):
         from torch.distributed.device_mesh import DeviceMesh
 
         distributed.DeviceMesh = DeviceMesh
+    import torch.distributed.tensor as distributed_tensor
+
+    if not hasattr(distributed_tensor, "distribute_tensor"):
+        from torch.distributed._tensor import distribute_tensor
+
+        distributed_tensor.distribute_tensor = distribute_tensor
     module_name, object_name = path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), object_name)
 

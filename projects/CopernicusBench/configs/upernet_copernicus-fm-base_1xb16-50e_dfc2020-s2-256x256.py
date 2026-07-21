@@ -4,7 +4,7 @@ custom_imports = dict(
     imports=['projects.CopernicusBench.copernicusbench'],
     allow_failed_imports=False)
 
-dataset_type = 'DFC2020S2Dataset'
+dataset_type = 'CopernicusBenchDFC2020S2Dataset'
 data_root = 'data/copernicusbench/dfc2020_s1s2'
 crop_size = (256, 256)
 patch_area = (16 * 10 / 1000)**2
