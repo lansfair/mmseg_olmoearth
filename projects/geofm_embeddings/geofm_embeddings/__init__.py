@@ -8,11 +8,13 @@ from .adapters import (
     UniverSatAdapter,
 )
 from .backbone import GeoFMBackbone
-from .data_preprocessor import GeoFMDataPreprocessor
+from .data_preprocessor import GeoFMDataPreprocessor, PotsdamGeoFMDataPreprocessor
 from .decode_heads import GeoFMLinearHead, GeoFMPatchLinearHead
 from .feature_backbone import PrecomputedEmbeddingBackbone
+from .embedding_model import GeoFMEmbeddingModel
 from .hooks import GeoFMFreezeBackboneHook
 from .segmentor import GeoFMEncoderDecoder
+from .transforms import ResizeImageOnly, RGBToGeoFMS2
 from .structures import EmbeddingResult, ModelCapabilities
 
 __all__ = [
@@ -22,6 +24,8 @@ __all__ = [
     "EmbeddingResult",
     "GeoFMBackbone",
     "GeoFMDataPreprocessor",
+    "PotsdamGeoFMDataPreprocessor",
+    "GeoFMEmbeddingModel",
     "GeoFMEncoderDecoder",
     "GeoFMFreezeBackboneHook",
     "GeoFMLinearHead",
@@ -32,4 +36,6 @@ __all__ = [
     "TESSERAAdapter",
     "UniverSatAdapter",
     "PrecomputedEmbeddingBackbone",
+    "ResizeImageOnly",
+    "RGBToGeoFMS2",
 ]

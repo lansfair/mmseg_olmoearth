@@ -29,6 +29,8 @@ class PackOlmoEarthSegInputs(BaseTransform):
             "present_bands",
             "timestamps",
             "olmoearth_rgb_adapter",
+            "geofm_input_representation",
+            "geofm_model_input_shape",
             "olmoearth_raw_img",
             "olmoearth_raw_band_names",
             "olmoearth_crs",

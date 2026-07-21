@@ -1,5 +1,44 @@
 # GeoFM Embedding：抽取、评测与推理
 
+## Potsdam 多模型批量抽取（当前服务器）
+
+统一输出目录为：
+
+```text
+/mnt/ht2-nas2/EO_test/wyf/embedding_code/embedding/potsdam/<模型名>/
+├── train.json
+├── val.json
+├── train/<样本>/embedding.pt
+└── val/<样本>/embedding.pt
+```
+
+进入项目并激活环境：
+
+```bash
+conda activate geofm-olmoearth-cu121
+cd /mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth
+```
+
+模型配置位于 `projects/geofm_embeddings/configs/potsdam/`。先抽两张图验证：
+
+```bash
+bash projects/geofm_embeddings/tools/run_potsdam_embedding.sh \
+  olmoearth_base train 0 2
+```
+
+验证通过后在 tmux 中运行完整 split：
+
+```bash
+tmux new-session -d -s emb-olmo-train \
+  "bash projects/geofm_embeddings/tools/run_potsdam_embedding.sh olmoearth_base train 0 \
+   > /mnt/ht2-nas2/EO_test/wyf/embedding_code/embedding/potsdam/logs/olmoearth_base_train.log 2>&1"
+```
+
+当前首批配置名：`olmoearth_base`、`copernicusfm_base`、`dinov3_vitl16`、
+`clay_large`、`croma_base`、`galileo_base`、`presto`、`prithviv2_300m`、
+`tessera`。模型统一读取 64×64 的 RGB→Sentinel-2 代理输入，原始 Potsdam
+标签仍保存为 512×512；后续 Linear probe 会把特征上采样到标签尺寸。
+
 本项目位于完整的 `mmseg_olmoearth` 仓库中，负责：
 
 - 从地球基础模型抽取全局或稠密 embedding；

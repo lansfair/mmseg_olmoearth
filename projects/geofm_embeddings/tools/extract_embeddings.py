@@ -43,7 +43,9 @@ def _sample_label(data_samples, index: int) -> torch.Tensor | None:
 
 
 def _input_hw(inputs: Any, metadata: dict[str, Any]) -> tuple[int, int] | None:
-    shape = metadata.get("img_shape") or metadata.get("ori_shape")
+    # Dense embeddings are referenced to the original tile, even when the
+    # model consumes a compact resized proxy.
+    shape = metadata.get("ori_shape") or metadata.get("img_shape")
     if shape is not None:
         return int(shape[0]), int(shape[1])
     if isinstance(inputs, torch.Tensor) and inputs.ndim >= 4:
@@ -245,6 +247,9 @@ def main() -> None:
                 }
                 if source_hw is not None:
                     record["source_shape"] = list(source_hw)
+                model_input_shape = item_metadata.get("geofm_model_input_shape")
+                if model_input_shape is not None:
+                    record["model_input_shape"] = list(model_input_shape)
                 if args.save_labels:
                     label = _sample_label(data_samples, item_index)
                     if label is None:
