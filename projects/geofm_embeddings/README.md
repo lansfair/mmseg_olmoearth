@@ -19,7 +19,8 @@ CopernicusFM、TESSERA 和 UniverSAT。
 | Conda 环境 | `/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121` |
 | 地球基础模型权重根目录 | `/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重` |
 | 数据集根目录 | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat` |
-| PASTIS-R | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R` |
+| PASTIS-R 原始数据 | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R` |
+| PASTIS-R 处理后数据 | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R/dataset_for_OEF_64` |
 | Potsdam | `/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/potsdam` |
 | 项目仓库 | `/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth` |
 
@@ -34,7 +35,9 @@ export GEOF_REPO=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_o
 export GEOF_WEIGHT_ROOT='/mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重'
 export GEOF_MODEL_ROOT="$GEOF_WEIGHT_ROOT/geofm"
 export GEOF_DATA_ROOT=/mnt/ht2-nas2/EO_test/openmmlab-archive/dat
-export PASTIS_ROOT="$GEOF_DATA_ROOT/PASTIS-R"
+export PASTIS_RAW_ROOT="$GEOF_DATA_ROOT/PASTIS-R"
+export PASTIS_ROOT="$PASTIS_RAW_ROOT/dataset_for_OEF_64"
+export PASTIS_DIR="$PASTIS_ROOT"
 export POTSDAM_ROOT="$GEOF_DATA_ROOT/potsdam"
 export GEOF_RESULT_ROOT=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/results
 export GEOF_EMBED_ROOT=$GEOF_RESULT_ROOT/embeddings
@@ -67,16 +70,66 @@ $PYTHON -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 /mnt/ht2-nas2/EO_test/wyf/embedding_code/地球基础模型权重/geofm/olmoearth/base/weights.pth
 ```
 
-PASTIS-R 的当前数据目录为：
+PASTIS-R 的原始数据与处理后数据目录分别为：
 
 ```text
 /mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R
-/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R/dataset_for_OEF_64/pastis_r_train
+/mnt/ht2-nas2/EO_test/openmmlab-archive/dat/PASTIS-R/dataset_for_OEF_64
 ```
 
 后文统一使用 `$PYTHON`，因此不会误用服务器的 `(base)` 环境。模型配置中的
 checkpoint 路径统一从 `$GEOF_MODEL_ROOT` 取，数据配置中的 `data_root` 统一指向
 `$GEOF_DATA_ROOT` 下对应的数据集目录。
+
+### 1.1 使用 OLMoEarth 官方脚本处理 PASTIS-R
+
+PASTIS-R 不能直接把原始 `DATA_S1A`、`DATA_S1D`、`DATA_S2` 和标注目录交给
+后续 embedding 脚本。应先使用 `olmoearth_pretrain` 自带的
+`pastis_processor.py` 生成官方评测格式。该模块已经安装在
+`geofm-olmoearth-cu121` 环境中，因此仍使用上面的 `$PYTHON`：
+
+```bash
+$PYTHON -m olmoearth_pretrain.evals.datasets.pastis_processor \
+  --data_dir "$PASTIS_RAW_ROOT" \
+  --output_dir "$PASTIS_ROOT"
+```
+
+不添加 `--orig_size` 时，脚本将影像处理为当前项目使用的 64×64 版本。处理完成后
+必须同时存在三个 split：
+
+```text
+$PASTIS_ROOT/
+├── pastis_r_train/
+│   ├── s1_images/
+│   ├── s2_images/
+│   ├── months.pt
+│   └── targets.pt
+├── pastis_r_valid/
+│   ├── s1_images/
+│   ├── s2_images/
+│   ├── months.pt
+│   └── targets.pt
+└── pastis_r_test/
+    ├── s1_images/
+    ├── s2_images/
+    ├── months.pt
+    └── targets.pt
+```
+
+可用下面的命令检查处理是否完整：
+
+```bash
+for split in train valid test; do
+  test -f "$PASTIS_ROOT/pastis_r_${split}/months.pt" && \
+  test -f "$PASTIS_ROOT/pastis_r_${split}/targets.pt" && \
+  test -d "$PASTIS_ROOT/pastis_r_${split}/s1_images" && \
+  test -d "$PASTIS_ROOT/pastis_r_${split}/s2_images" && \
+  echo "$split: OK" || echo "$split: INCOMPLETE"
+done
+```
+
+后续 OLMoEarth 数据加载器的 `PASTIS_DIR` 应指向处理后根目录 `$PASTIS_ROOT`，
+而不是原始目录 `$PASTIS_RAW_ROOT`。
 
 ## 2. 总体流程
 
