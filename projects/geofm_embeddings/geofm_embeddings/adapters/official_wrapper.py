@@ -66,6 +66,15 @@ OFFICIAL_WRAPPER_PRESETS = {
 
 
 def _load_object(path: str):
+    # PyTorch 2.1 exposes DeviceMesh from the submodule but not from
+    # torch.distributed. Newer torchdata/transformers releases import it from
+    # the package root, so provide the upstream alias before loading wrappers.
+    import torch.distributed as distributed
+
+    if not hasattr(distributed, "DeviceMesh"):
+        from torch.distributed.device_mesh import DeviceMesh
+
+        distributed.DeviceMesh = DeviceMesh
     module_name, object_name = path.rsplit(".", 1)
     return getattr(importlib.import_module(module_name), object_name)
 

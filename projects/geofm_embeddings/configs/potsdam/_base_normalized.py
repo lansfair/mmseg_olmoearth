@@ -1,6 +1,5 @@
 custom_imports = dict(
     imports=[
-        "projects.olmoearth.olmoearth",
         "projects.geofm_embeddings.geofm_embeddings",
     ],
     allow_failed_imports=False,
