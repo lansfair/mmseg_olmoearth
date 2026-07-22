@@ -206,6 +206,24 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
             wrapper_kwargs["pretrained_path"] = UPath(
                 wrapper_kwargs["pretrained_path"]
             )
+        if preset == "galileo":
+            # Some binary distributions of olmoearth_pretrain omit the JSON
+            # file used by the official Galileo normalizer.  Keep an exact
+            # copy of the upstream file with this adapter and redirect only
+            # the loader invoked by GalileoWrapper; this avoids mutating the
+            # installed environment while preserving official preprocessing.
+            wrapper_module = importlib.import_module(wrapper_class.__module__)
+            normalization_path = Path(__file__).with_name(
+                "galileo_normalization_config.json"
+            )
+            load_normalization_values = wrapper_module.load_normalization_values
+
+            def _load_galileo_normalization(_):
+                return load_normalization_values(normalization_path)
+
+            wrapper_module.load_normalization_values = (
+                _load_galileo_normalization
+            )
         self.wrapper = wrapper_class(**wrapper_kwargs)
         if freeze:
             self.wrapper.requires_grad_(False)
