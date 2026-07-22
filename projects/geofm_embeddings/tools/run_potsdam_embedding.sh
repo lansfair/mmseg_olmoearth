@@ -12,6 +12,7 @@ GPU="$3"
 LIMIT="${4:-}"
 
 REPO=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/src/mmseg_olmoearth
+EXTERNAL_ROOT=/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/external
 PYTHON=/mnt/ht2-nas2/EO_test/miniconda3/envs/geofm-olmoearth-cu121/bin/python
 OUTPUT_ROOT=/mnt/ht2-nas2/EO_test/wyf/embedding_code/embedding/potsdam
 CONFIG="$REPO/projects/geofm_embeddings/configs/potsdam/${MODEL}.py"
@@ -29,7 +30,7 @@ fi
 mkdir -p "$OUTPUT" "$OUTPUT_ROOT/logs"
 cd "$REPO"
 export CUDA_VISIBLE_DEVICES="$GPU"
-export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$REPO:$EXTERNAL_ROOT/clay-model${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=(
   "$REPO/projects/geofm_embeddings/tools/extract_embeddings.py"
