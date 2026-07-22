@@ -47,6 +47,7 @@ def _sample_indices(count: int) -> tuple[int, ...]:
 
 
 def audit_split(root: Path, model: str, split: str) -> dict[str, Any]:
+    print(f"Auditing {model}/{split}", flush=True)
     expected_count = EXPECTED_COUNTS[split]
     manifest_path = root / model / f"{split}.json"
     errors: list[str] = []
