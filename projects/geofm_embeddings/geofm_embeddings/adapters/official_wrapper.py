@@ -152,6 +152,8 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
         dense_method: str | None = None,
         dense_layout: str = "bhwd",
         uses_spatial_pool_argument: bool | None = None,
+        external_source_path: str | None = None,
+        local_checkpoint_path: str | None = None,
         freeze: bool = True,
         init_cfg: dict | None = None,
     ) -> None:
@@ -224,7 +226,71 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
             wrapper_module.load_normalization_values = (
                 _load_galileo_normalization
             )
-        self.wrapper = wrapper_class(**wrapper_kwargs)
+        if preset == "clay":
+            # ClayMAEModule creates a DINOv2 teacher with timm before the
+            # Lightning checkpoint restores all parameters.  The official
+            # constructor requests an additional remote pretrained download,
+            # which is unnecessary when loading the complete Clay checkpoint
+            # and fails on offline workers.  Build the same architecture
+            # without that redundant download; load_from_checkpoint then
+            # restores the official teacher and encoder weights.
+            import timm
+
+            original_create_model = timm.create_model
+
+            def _create_offline_teacher(*args, **kwargs):
+                kwargs["pretrained"] = False
+                return original_create_model(*args, **kwargs)
+
+            timm.create_model = _create_offline_teacher
+            try:
+                self.wrapper = wrapper_class(**wrapper_kwargs)
+            finally:
+                timm.create_model = original_create_model
+        elif preset == "anysat":
+            if external_source_path is None or local_checkpoint_path is None:
+                raise ValueError(
+                    "AnySat requires external_source_path and "
+                    "local_checkpoint_path for reproducible offline loading."
+                )
+            source_path = Path(external_source_path).expanduser().resolve()
+            checkpoint_path = Path(local_checkpoint_path).expanduser().resolve()
+            if not (source_path / "hubconf.py").is_file():
+                raise FileNotFoundError(
+                    f"AnySat hubconf.py not found under {source_path}."
+                )
+            if not checkpoint_path.is_file():
+                raise FileNotFoundError(
+                    f"AnySat checkpoint not found: {checkpoint_path}."
+                )
+            original_hub_load = torch.hub.load
+            original_url_loader = torch.hub.load_state_dict_from_url
+
+            def _load_local_anysat(_repo, _entrypoint, *args, **kwargs):
+                kwargs.pop("force_reload", None)
+                kwargs.pop("trust_repo", None)
+                return original_hub_load(
+                    str(source_path),
+                    "anysat",
+                    *args,
+                    source="local",
+                    **kwargs,
+                )
+
+            def _load_local_anysat_checkpoint(*_args, **_kwargs):
+                return torch.load(checkpoint_path, map_location="cpu")
+
+            torch.hub.load = _load_local_anysat
+            torch.hub.load_state_dict_from_url = (
+                _load_local_anysat_checkpoint
+            )
+            try:
+                self.wrapper = wrapper_class(**wrapper_kwargs)
+            finally:
+                torch.hub.load = original_hub_load
+                torch.hub.load_state_dict_from_url = original_url_loader
+        else:
+            self.wrapper = wrapper_class(**wrapper_kwargs)
         if freeze:
             self.wrapper.requires_grad_(False)
             self.wrapper.eval()
