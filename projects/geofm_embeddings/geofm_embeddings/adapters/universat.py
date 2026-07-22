@@ -82,6 +82,7 @@ class UniverSatAdapter(BaseGeoFMAdapter):
         global_pooling: str = "mean",
         freeze: bool = True,
         model: nn.Module | None = None,
+        model_cfg: dict[str, Any] | None = None,
         init_cfg: dict | None = None,
     ) -> None:
         super().__init__(model_variant=model_variant, init_cfg=init_cfg)
@@ -114,9 +115,17 @@ class UniverSatAdapter(BaseGeoFMAdapter):
             else str(Path(pretrained_model_dir))
         )
 
+        self.uses_native_backbone = False
+        if model is None and model_cfg is not None:
+            model = MODELS.build(model_cfg)
+            if hasattr(model, "init_weights"):
+                model.init_weights()
+            self.uses_native_backbone = True
         if model is None:
             if self.repo_dir is None:
-                raise ValueError("repo_dir is required when model is not injected.")
+                raise ValueError(
+                    "Specify model_cfg, inject model, or provide repo_dir."
+                )
             hubconf = Path(self.repo_dir) / "hubconf.py"
             if not hubconf.is_file():
                 raise FileNotFoundError(
@@ -241,6 +250,19 @@ class UniverSatAdapter(BaseGeoFMAdapter):
         return prepared
 
     def extract_dense(self, prepared_inputs: dict[str, Tensor]) -> Tensor:
+        if self.uses_native_backbone:
+            output = self.model(prepared_inputs)
+            if not isinstance(output, (list, tuple)) or len(output) != 1:
+                raise ValueError(
+                    "Native UniverSat backbone must return one feature map."
+                )
+            dense = output[0]
+            if dense.ndim != 4 or dense.shape[1] != self.out_channels:
+                raise ValueError(
+                    "Native UniverSat output must be [B,D,H,W], got "
+                    f"{tuple(dense.shape)}."
+                )
+            return dense
         tokens, _ = self.model.encode(
             prepared_inputs,
             patch_size=self.patch_size,
