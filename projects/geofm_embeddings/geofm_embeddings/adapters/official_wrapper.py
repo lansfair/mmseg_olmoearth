@@ -316,6 +316,38 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
                     )
 
             wrapper_module.resources = _PanopticonResources()
+        elif preset == "terramind":
+            if local_checkpoint_path is None:
+                raise ValueError(
+                    "TerraMind requires local_checkpoint_path for "
+                    "reproducible offline loading."
+                )
+            checkpoint_path = Path(local_checkpoint_path).expanduser().resolve()
+            if not checkpoint_path.is_file():
+                raise FileNotFoundError(
+                    f"TerraMind checkpoint not found: {checkpoint_path}."
+                )
+            wrapper_module = importlib.import_module(wrapper_class.__module__)
+            registry = wrapper_module.BACKBONE_REGISTRY
+            original_build = registry.build
+
+            def _build_local_terramind(name, *args, **kwargs):
+                kwargs["pretrained"] = False
+                model = original_build(name, *args, **kwargs)
+                state_dict = torch.load(checkpoint_path, map_location="cpu")
+                incompatible = model.load_state_dict(state_dict, strict=False)
+                if incompatible.missing_keys:
+                    raise RuntimeError(
+                        "TerraMind checkpoint is missing model parameters: "
+                        f"{incompatible.missing_keys[:20]}"
+                    )
+                return model
+
+            registry.build = _build_local_terramind
+            try:
+                self.wrapper = wrapper_class(**wrapper_kwargs)
+            finally:
+                registry.build = original_build
         elif preset == "anysat":
             if external_source_path is None or local_checkpoint_path is None:
                 raise ValueError(
