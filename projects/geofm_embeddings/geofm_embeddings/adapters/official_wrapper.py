@@ -247,6 +247,75 @@ class OfficialOlmoEarthWrapperAdapter(BaseGeoFMAdapter):
                 self.wrapper = wrapper_class(**wrapper_kwargs)
             finally:
                 timm.create_model = original_create_model
+        elif preset == "panopticon":
+            if external_source_path is None or local_checkpoint_path is None:
+                raise ValueError(
+                    "Panopticon requires external_source_path and "
+                    "local_checkpoint_path for reproducible offline loading."
+                )
+            source_path = Path(external_source_path).expanduser().resolve()
+            checkpoint_path = Path(local_checkpoint_path).expanduser().resolve()
+            if not (source_path / "hubconf.py").is_file():
+                raise FileNotFoundError(
+                    f"Panopticon hubconf.py not found under {source_path}."
+                )
+            if not checkpoint_path.is_file():
+                raise FileNotFoundError(
+                    f"Panopticon checkpoint not found: {checkpoint_path}."
+                )
+            original_hub_load = torch.hub.load
+            original_downloader = torch.hub.download_url_to_file
+
+            def _load_local_panopticon(_repo, entrypoint, *args, **kwargs):
+                kwargs.pop("force_reload", None)
+                kwargs.pop("trust_repo", None)
+                return original_hub_load(
+                    str(source_path),
+                    entrypoint,
+                    *args,
+                    source="local",
+                    dir_to_save_ckpt_in=str(checkpoint_path.parent),
+                    **kwargs,
+                )
+
+            def _reuse_local_panopticon_checkpoint(_url, destination, *_, **__):
+                destination_path = Path(destination).expanduser().resolve()
+                if destination_path != checkpoint_path:
+                    raise RuntimeError(
+                        "Panopticon requested an unexpected checkpoint path: "
+                        f"{destination_path}."
+                    )
+
+            torch.hub.load = _load_local_panopticon
+            torch.hub.download_url_to_file = (
+                _reuse_local_panopticon_checkpoint
+            )
+            try:
+                self.wrapper = wrapper_class(**wrapper_kwargs)
+            finally:
+                torch.hub.load = original_hub_load
+                torch.hub.download_url_to_file = original_downloader
+
+            wrapper_module = importlib.import_module(wrapper_class.__module__)
+            original_resources = wrapper_module.resources
+            sensor_root = Path(__file__).with_name("panopticon_sensors")
+
+            class _PanopticonResources:
+                def __getattr__(self, name):
+                    return getattr(original_resources, name)
+
+                def open_text(self, package, resource, *args, **kwargs):
+                    if package == (
+                        "olmoearth_pretrain.evals.models.panopticon.sensors"
+                    ):
+                        return (sensor_root / resource).open(
+                            "r", encoding=kwargs.get("encoding", "utf-8")
+                        )
+                    return original_resources.open_text(
+                        package, resource, *args, **kwargs
+                    )
+
+            wrapper_module.resources = _PanopticonResources()
         elif preset == "anysat":
             if external_source_path is None or local_checkpoint_path is None:
                 raise ValueError(
