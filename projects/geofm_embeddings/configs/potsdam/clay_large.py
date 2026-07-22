@@ -17,9 +17,9 @@ model = dict(
                     "geofm/clay/large-v1.5/clay-v1.5.ckpt"
                 ),
                 metadata_path=(
-                    "/mnt/ht2-nas2/EO_test/miniconda3/envs/"
-                    "geofm-olmoearth-cu121/lib/python3.11/site-packages/"
-                    "olmoearth_pretrain/evals/models/clay/metadata.yaml"
+                    "/mnt/ht2-nas2/EO_test/wyf/embedding_code/geofm_a100/"
+                    "src/mmseg_olmoearth/projects/geofm_embeddings/"
+                    "geofm_embeddings/adapters/clay_metadata.yaml"
                 ),
                 use_pretrained_normalizer=True,
             ),
