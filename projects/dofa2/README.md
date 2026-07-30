@@ -53,6 +53,11 @@ The configured dataset directories are:
 | SVDT | RGB, 512x512 | `dofav2-large_1xb4-50e_svdt-rgb-frozen.py` | `dofav2-large_1xb4-50e_svdt-rgb-finetune.py` |
 | Ningbo-2m | RGB, 512x512 | `dofav2-large_1xb4-50e_ningbo-rgb-frozen.py` | `dofav2-large_1xb4-50e_ningbo-rgb-finetune.py` |
 
+For the four-GPU m-cashew reproduction, use
+`dofav2-large_4xb16-20e_m-cashew-s2-official.py`. It keeps the paper's global
+batch size 64 while using the official task-specific learning rate, warm-up,
+and minimum learning rate.
+
 The `1xbN` part is the per-GPU batch size. For multi-GPU runs, either keep the
 learning rate fixed or enable `auto_scale_lr` after choosing a reference global
 batch size.
@@ -67,12 +72,12 @@ python tools/train.py \
   projects/dofa2/configs/dofav2-large_1xb12-20e_m-cashew-s2-frozen.py
 ```
 
-Eight GPUs:
+Four GPUs:
 
 ```bash
 bash tools/dist_train.sh \
-  projects/dofa2/configs/dofav2-large_1xb12-20e_m-cashew-s2-frozen.py \
-  8
+  projects/dofa2/configs/dofav2-large_4xb16-20e_m-cashew-s2-official.py \
+  4
 ```
 
 Evaluation:
