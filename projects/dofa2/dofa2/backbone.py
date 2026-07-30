@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from mmengine.model import BaseModule
 from mmengine.runner.checkpoint import CheckpointLoader
 from mmseg.registry import MODELS
-from timm.models.vision_transformer import VisionTransformer
+from timm.models.vision_transformer import Block, VisionTransformer
 
 from .utils import get_arch_setting, get_wavelengths
 
@@ -379,4 +379,154 @@ class DOFAV2ViT(BaseModule):
             tokens = block(tokens)
             if index in self.out_indices:
                 outputs.append(self._tokens_to_image(tokens, hw_shape))
+        return tuple(outputs)
+
+
+@MODELS.register_module()
+class DOFAViT(BaseModule):
+    """Original DOFA ViT backbone used by the paper's GeoBench protocol.
+
+    Unlike DOFAv2, the original DOFA ViT-L uses 16x16 dynamic patches,
+    exposes blocks 7/11/15/23 to UPerNet, and does not use timm's DINOv2
+    layer-scale or dynamic-position-embedding path.
+    """
+
+    def __init__(
+        self,
+        arch: str = 'large',
+        img_size: int = 224,
+        patch_size: int = 16,
+        out_indices: tuple[int, ...] | list[int] | None = None,
+        model_bands: tuple[str, ...] | list[str] = ('RED', 'GREEN', 'BLUE'),
+        wavelength_dim: int = 128,
+        mlp_ratio: float = 4.0,
+        drop_path_rate: float = 0.0,
+        freeze_backbone: bool = False,
+        init_cfg: dict | None = None,
+    ):
+        super().__init__(init_cfg=None)
+        self.pretrained_init_cfg = init_cfg
+        settings = get_arch_setting(arch)
+        self.embed_dim = settings['embed_dim']
+        self.depth = settings['depth']
+        if out_indices is None:
+            out_indices = (
+                (7, 11, 15, 23) if arch == 'large'
+                else (3, 5, 7, 11)
+            )
+        self.out_indices = tuple(out_indices)
+        if len(set(self.out_indices)) != len(self.out_indices):
+            raise ValueError('out_indices must not contain duplicates.')
+        invalid = [i for i in self.out_indices if not 0 <= i < self.depth]
+        if invalid:
+            raise ValueError(
+                f'out_indices {invalid} are outside [0, {self.depth - 1}].')
+
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.freeze_backbone = freeze_backbone
+        self.register_buffer(
+            'wavelengths',
+            torch.tensor(get_wavelengths(model_bands), dtype=torch.float32),
+            persistent=False,
+        )
+        self.patch_embed = DynamicPatchEmbed(
+            wavelength_dim=wavelength_dim,
+            kernel_size=patch_size,
+            embed_dim=self.embed_dim,
+            pretrain_img_size=img_size,
+            convert_patch_14_to_16=False,
+        )
+        num_patches = (img_size // patch_size)**2
+        self.patch_embed.num_patches = num_patches
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, self.embed_dim))
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, num_patches + 1, self.embed_dim),
+            requires_grad=False,
+        )
+        norm_layer = partial(nn.LayerNorm, eps=1e-6)
+        dpr = torch.linspace(0, drop_path_rate, self.depth).tolist()
+        self.blocks = nn.ModuleList([
+            Block(
+                dim=self.embed_dim,
+                num_heads=settings['num_heads'],
+                mlp_ratio=mlp_ratio,
+                qkv_bias=True,
+                drop_path=dpr[index],
+                norm_layer=norm_layer,
+            )
+            for index in range(self.depth)
+        ])
+        self._apply_freezing()
+
+    def init_weights(self) -> None:
+        super().init_weights()
+        init_cfg = self.pretrained_init_cfg
+        if init_cfg is not None:
+            if init_cfg.get('type') != 'Pretrained':
+                raise ValueError(
+                    'DOFAViT only supports init_cfg type="Pretrained".')
+            checkpoint_path = init_cfg.get('checkpoint')
+            if not checkpoint_path:
+                raise ValueError(
+                    'A non-empty checkpoint path is required in init_cfg.')
+            checkpoint = CheckpointLoader.load_checkpoint(
+                checkpoint_path, map_location='cpu')
+            if not isinstance(checkpoint, dict):
+                raise TypeError('The DOFA checkpoint must contain a dict.')
+            state_dict = DOFAV2ViT._unwrap_checkpoint(checkpoint)
+            message = self.load_state_dict(state_dict, strict=False)
+            logging.getLogger(__name__).info(
+                'Loaded original DOFA checkpoint %s: %s',
+                checkpoint_path,
+                message,
+            )
+        self._apply_freezing()
+
+    def _apply_freezing(self) -> None:
+        if not self.freeze_backbone:
+            return
+        self.eval()
+        for parameter in self.parameters():
+            parameter.requires_grad = False
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self._apply_freezing()
+        return self
+
+    def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        if image.shape[1] != self.wavelengths.numel():
+            raise ValueError(
+                f'DOFA received {image.shape[1]} channels but '
+                f'{self.wavelengths.numel()} model_bands were configured.')
+        if image.shape[-2:] != (self.img_size, self.img_size):
+            raise ValueError(
+                f'Original DOFA expects {(self.img_size, self.img_size)} '
+                f'inputs, got {tuple(image.shape[-2:])}.')
+
+        wavelengths = self.wavelengths.to(
+            device=image.device, dtype=torch.float32)
+        tokens, _ = self.patch_embed(image, wavelengths)
+        expected_tokens = (self.img_size // self.patch_size)**2
+        if tokens.shape[1] != expected_tokens:
+            raise RuntimeError(
+                f'Expected {expected_tokens} patch tokens, '
+                f'got {tokens.shape[1]}.')
+        tokens = tokens + self.pos_embed[:, 1:, :]
+        cls_token = self.cls_token + self.pos_embed[:, :1, :]
+        tokens = torch.cat(
+            [cls_token.expand(tokens.shape[0], -1, -1), tokens],
+            dim=1,
+        )
+
+        grid_size = self.img_size // self.patch_size
+        outputs = []
+        for index, block in enumerate(self.blocks):
+            tokens = block(tokens)
+            if index in self.out_indices:
+                output = tokens[:, 1:, :].reshape(
+                    tokens.shape[0], grid_size, grid_size, self.embed_dim)
+                outputs.append(
+                    output.permute(0, 3, 1, 2).contiguous())
         return tuple(outputs)

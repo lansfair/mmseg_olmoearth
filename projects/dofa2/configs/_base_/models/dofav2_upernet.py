@@ -44,11 +44,13 @@ model = dict(
         freeze_backbone=True,
         init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     ),
+    # Match the paper/official implementation: turn the four ViT feature
+    # levels into a pyramid with learned transposed convolutions and pooling.
     neck=dict(
-        type='MultiLevelNeck',
-        in_channels=[1024, 1024, 1024, 1024],
-        out_channels=1024,
-        scales=[4, 2, 1, 0.5],
+        type='Feature2Pyramid',
+        embed_dim=1024,
+        rescales=[4, 2, 1, 0.5],
+        norm_cfg=norm_cfg,
     ),
     decode_head=dict(
         type='UPerHead',
