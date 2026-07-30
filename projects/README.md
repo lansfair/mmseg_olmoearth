@@ -3,6 +3,8 @@
 The OpenMMLab ecosystem can only grow through the contributions of the community.
 Everyone is welcome to post their implementation of any great ideas in this folder! If you wish to start your own project, please go through the [example project](example_project/) for the best practice. For common questions about projects, please read our [faq](faq.md).
 
+Local project integrations include [DOFAv2](dofa2/README.md).
+
 ## External Projects
 
 There are also selected external projects released in the community that use MMSegmentation:
