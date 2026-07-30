@@ -13,6 +13,10 @@ data_preprocessor = dict(
     bgr_to_rgb=False,
     pad_val=0,
     seg_pad_val=255,
+    # The dataset pipelines already crop samples to their configured size.
+    # MMSeg still requires exactly one of size/size_divisor for batch stacking;
+    # divisor 1 preserves those crop sizes without introducing extra padding.
+    size_divisor=1,
 )
 
 model = dict(
