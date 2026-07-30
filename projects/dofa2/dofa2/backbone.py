@@ -105,12 +105,19 @@ class DynamicPatchEmbed(nn.Module):
                  wavelength_dim: int = 128,
                  kernel_size: int = 14,
                  embed_dim: int = 1024,
+                 pretrain_img_size: int = 224,
                  convert_patch_14_to_16: bool = False):
         super().__init__()
         self.kernel_size = kernel_size
         self.embed_dim = embed_dim
         self.patch_size = (kernel_size, kernel_size)
-        self.num_patches = -1
+        # timm >= 1.0.0 uses this static grid as the source layout when it
+        # resamples the pretrained absolute positional embedding for dynamic
+        # input sizes. It describes the checkpoint resolution, not the current
+        # image resolution.
+        grid_size = pretrain_img_size // kernel_size
+        self.grid_size = (grid_size, grid_size)
+        self.num_patches = grid_size * grid_size
         self.convert_patch_14_to_16 = convert_patch_14_to_16
         self.weight_generator = TransformerWeightGenerator(
             wavelength_dim,
@@ -247,10 +254,9 @@ class DOFAV2ViT(BaseModule):
             wavelength_dim=wavelength_dim,
             kernel_size=patch_size,
             embed_dim=self.embed_dim,
+            pretrain_img_size=pretrain_img_size,
             convert_patch_14_to_16=convert_patch_14_to_16,
         )
-        self.model.patch_embed.num_patches = (
-            img_size // self.effective_patch_size)**2
         self._apply_freezing()
 
     def _validate_out_indices(self) -> None:
