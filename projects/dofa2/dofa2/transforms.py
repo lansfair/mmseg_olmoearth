@@ -58,6 +58,10 @@ class CenterCrop(BaseTransform):
         for key in results.get('seg_fields', []):
             results[key] = np.ascontiguousarray(results[key][slices])
         results['img_shape'] = self.crop_size
+        # The crop defines the evaluation canvas. MMSeg otherwise keeps the
+        # pre-crop ori_shape and resizes predictions back to it, which makes
+        # cropped predictions and labels incompatible in IoUMetric.
+        results['ori_shape'] = self.crop_size
         return results
 
 
