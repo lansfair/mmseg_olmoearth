@@ -10,12 +10,14 @@ WAVELENGTHS = {
     'RED_EDGE_1': 0.705,
     'RED_EDGE_2': 0.74,
     'RED_EDGE_3': 0.783,
-    'NIR_BROAD': 0.832,
+    # Keep these values aligned with DOFA+ pretraining/datasets/waves.json.
+    # The dynamic patch embed conditions its filters on these wavelengths.
+    'NIR_BROAD': 0.842,
     'NIR_NARROW': 0.864,
     'WATER_VAPOR': 0.945,
     'CIRRUS': 1.373,
     'SWIR_1': 1.61,
-    'SWIR_2': 2.20,
+    'SWIR_2': 2.19,
     'THERMAL_INFRARED_1': 10.90,
     'THERMAL_INFRARED_2': 12.00,
     'VV': 5.405,
