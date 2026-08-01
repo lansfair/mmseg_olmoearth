@@ -9,17 +9,14 @@ recipes for GEO-Bench m-cashew-plant, SVDT, and Ningbo-2m.
   `init_cfg` no longer calls the checkpoint loader with `None`.
 - `freeze_backbone` explicitly controls full-backbone freezing. Frozen
   backbones remain in evaluation mode, so DropPath is disabled as expected.
-- Patch-14 is preserved. `convert_patch_14_to_16=False` is the segmentation
-  default used by the DOFAv2 reference implementation; the conversion remains
-  available only as an opt-in compatibility option.
-- m-cashew-plant uses the official nine Sentinel-2 bands, in this order:
-  R, G, B, three red-edge bands, NIR, SWIR1, SWIR2.
+- The retained m-cashew-plant recipe uses the best verified setup: RGB input,
+  256x256 crops, and `convert_patch_14_to_16=True`.
 - GEO-Bench objects are cached inside each transform/worker rather than in a
   split-overwriting module global.
 - RGB/BGR handling is explicit. GEO-Bench and rasterio inputs stay in file
   band order; SVDT's MMSeg image loader is converted from BGR to RGB.
-- Training uses random crop/rotation/flips, three warm-up epochs, gradient
-  clipping, and conservative full-finetuning learning rates.
+- The m-cashew recipe freezes the backbone and trains UPerNet for 30 epochs
+  with center crop, rotation, flips, AdamW at 5e-3, and cosine decay.
 - The configurations use the server's existing absolute dataset and
   pretrained-weight paths. No path environment variables are required.
 
@@ -49,14 +46,13 @@ The configured dataset directories are:
 
 | Dataset | Input | Frozen backbone | Full finetuning |
 | --- | --- | --- | --- |
-| m-cashew-plant | Sentinel-2, 9 bands, 224x224 | `dofav2-large_1xb12-20e_m-cashew-s2-frozen.py` | `dofav2-large_1xb12-20e_m-cashew-s2-finetune.py` |
+| m-cashew-plant | RGB, 256x256, P16 | `dofav2-large_4xb16-30e_m-cashew-rgb-p16-256.py` | - |
 | SVDT | RGB, 512x512 | `dofav2-large_1xb4-50e_svdt-rgb-frozen.py` | `dofav2-large_1xb4-50e_svdt-rgb-finetune.py` |
 | Ningbo-2m | RGB, 512x512 | `dofav2-large_1xb4-50e_ningbo-rgb-frozen.py` | `dofav2-large_1xb4-50e_ningbo-rgb-finetune.py` |
 
-For the four-GPU m-cashew reproduction, use
-`dofav2-large_4xb16-20e_m-cashew-s2-official.py`. It keeps the paper's global
-batch size 64 while using the official task-specific learning rate, warm-up,
-and minimum learning rate.
+The retained m-cashew configuration uses four GPUs with 16 samples per GPU,
+for the verified global batch size of 64. It reached 64.53 validation mIoU and
+58.96 test mIoU in the comparison run.
 
 The `1xbN` part is the per-GPU batch size. For multi-GPU runs, either keep the
 learning rate fixed or enable `auto_scale_lr` after choosing a reference global
@@ -65,18 +61,11 @@ batch size.
 ## Train and test
 
 Use the training and testing scripts already provided by MMSegmentation.
-Single-GPU training:
-
-```bash
-python tools/train.py \
-  projects/dofa2/configs/dofav2-large_1xb12-20e_m-cashew-s2-frozen.py
-```
-
-Four GPUs:
+Four-GPU m-cashew training:
 
 ```bash
 bash tools/dist_train.sh \
-  projects/dofa2/configs/dofav2-large_4xb16-20e_m-cashew-s2-official.py \
+  projects/dofa2/configs/dofav2-large_4xb16-30e_m-cashew-rgb-p16-256.py \
   4
 ```
 
